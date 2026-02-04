@@ -321,7 +321,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
 
           // 로컬 알림 표시
           try {
-            NotificationService.instance.showReservationSuccess(
+            await NotificationService.instance.showReservationSuccess(
               trainNo: train.trainNo,
               reservationId: reservation.reservationId,
               depStation: condition?.depStation,

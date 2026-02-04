@@ -10,6 +10,7 @@ import '../providers/log_provider.dart';
 import '../widgets/train_card.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/log_tile.dart';
+import '../widgets/train_loading_indicator.dart';
 
 /// 열차 조회 결과 리스트 화면
 ///
@@ -350,6 +351,9 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
             '${lastTime.second.toString().padLeft(2, '0')}'
         : '--:--:--';
 
+    final isAnimating = monitorState.status == MonitorStatus.searching ||
+        monitorState.status == MonitorStatus.reserving;
+
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
@@ -360,35 +364,39 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.spacingMd),
-        child: Row(
+        child: Column(
           children: [
-            StatusBadge(status: monitorState.status),
-            if (monitorState.status == MonitorStatus.searching) ...[
-              const SizedBox(width: 8),
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ],
-            const Spacer(),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Row(
               children: [
-                Text(
-                  '${monitorState.searchCount}회',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  lastTimeStr,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: KorailColors.textSecondary,
-                  ),
+                StatusBadge(status: monitorState.status),
+                const Spacer(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${monitorState.searchCount}회',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      lastTimeStr,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: KorailColors.textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
+            if (isAnimating) ...[
+              const SizedBox(height: 8),
+              TrainLoadingIndicator(
+                width: double.infinity,
+                height: 36,
+                color: _getStatusBorderColor(monitorState.status),
+              ),
+            ],
           ],
         ),
       ),
@@ -475,25 +483,20 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
             children: [
               // 모니터링 중 상태 표시
               if (isMonitoring) ...[
-                Row(
-                  children: [
-                    const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${monitorState.targetTrainNos.join(", ")} 좌석 확인 중... (${monitorState.searchCount}회)',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: KorailColors.statusSearching,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+                TrainLoadingIndicator(
+                  width: double.infinity,
+                  height: 28,
+                  color: KorailColors.statusSearching,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${monitorState.targetTrainNos.join(", ")} 좌석 확인 중... (${monitorState.searchCount}회)',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: KorailColors.statusSearching,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
               ],

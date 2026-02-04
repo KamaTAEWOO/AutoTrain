@@ -28,11 +28,11 @@ class NotificationService {
     // Android 설정
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // iOS 설정 — 권한은 requestPermission()에서 명시적으로 요청
+    // iOS 설정
     const iosSettings = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
     );
 
     const settings = InitializationSettings(
@@ -41,6 +41,15 @@ class NotificationService {
     );
 
     await _plugin.initialize(settings);
+
+    // iOS 포그라운드 알림 표시 설정
+    final iosPlugin = _plugin.resolvePlatformSpecificImplementation<
+        IOSFlutterLocalNotificationsPlugin>();
+    await iosPlugin?.requestPermissions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
 
     // Android 알림 채널 생성
     final androidPlugin = _plugin
