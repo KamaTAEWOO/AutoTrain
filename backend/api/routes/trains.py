@@ -1,16 +1,24 @@
 """
 열차 조회 API 라우트
-GET /api/trains/search - TAGO 공공데이터 API를 통한 열차 시간표 조회
+GET /api/trains/search - korail2를 통한 열차 조회 (로그인 필요)
+                         미로그인 시 TAGO 공공데이터 폴백
 """
 
 import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
-from api.deps import get_tago_service
+from api.deps import get_korail_service, get_tago_service
 from models.schemas import TrainSearchResponse, ErrorResponse
+from services.korail_service import (
+    KorailService,
+    KorailServiceError,
+    NoTrainsError,
+    SessionExpiredError,
+    KorailServerError,
+)
 from services.tago_service import (
     TaGoService,
     StationNotFoundError,
@@ -40,19 +48,7 @@ VALID_STATIONS = {
 
 
 def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
-    """
-    검색 파라미터 유효성을 검사한다.
-
-    Args:
-        dep: 출발역
-        arr: 도착역
-        date: 날짜 (YYYYMMDD)
-        time: 시간 (HHmmss)
-
-    Raises:
-        HTTPException(400): 파라미터가 유효하지 않은 경우
-    """
-    # 출발역 필수
+    """검색 파라미터 유효성을 검사한다."""
     if not dep or not dep.strip():
         raise HTTPException(
             status_code=400,
@@ -63,7 +59,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 도착역 필수
     if not arr or not arr.strip():
         raise HTTPException(
             status_code=400,
@@ -74,7 +69,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 출발역/도착역 동일 불가
     if dep.strip() == arr.strip():
         raise HTTPException(
             status_code=400,
@@ -85,7 +79,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 유효한 역명 확인
     if dep.strip() not in VALID_STATIONS:
         raise HTTPException(
             status_code=400,
@@ -106,7 +99,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 날짜 형식 검증 (YYYYMMDD)
     if not re.match(r"^\d{8}$", date):
         raise HTTPException(
             status_code=400,
@@ -117,7 +109,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 날짜 유효성 검증
     try:
         search_date = datetime.strptime(date, "%Y%m%d").date()
     except ValueError:
@@ -130,7 +121,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 과거 날짜 검증
     today = datetime.now(KST).date()
     if search_date < today:
         raise HTTPException(
@@ -142,19 +132,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 미래 날짜 범위 검증 (TAGO API는 약 7일 이내만 데이터 제공)
-    max_date = today + timedelta(days=7)
-    if search_date > max_date:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "DATE_RANGE_EXCEEDED",
-                "code": "SEARCH_004",
-                "detail": f"공공데이터 API는 {max_date.strftime('%m/%d')}까지만 조회 가능합니다",
-            },
-        )
-
-    # 시간 형식 검증 (HHmmss)
     if not re.match(r"^\d{6}$", time):
         raise HTTPException(
             status_code=400,
@@ -165,7 +142,6 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
             },
         )
 
-    # 시간 범위 검증
     hour = int(time[:2])
     minute = int(time[2:4])
     if hour > 23 or minute > 59:
@@ -184,13 +160,15 @@ def _validate_params(dep: str, arr: str, date: str, time: str) -> None:
     response_model=TrainSearchResponse,
     responses={
         400: {"model": ErrorResponse, "description": "잘못된 파라미터"},
+        401: {"model": ErrorResponse, "description": "세션 만료 (korail2 모드)"},
         404: {"model": ErrorResponse, "description": "열차 없음"},
-        503: {"model": ErrorResponse, "description": "API 서버 오류"},
+        503: {"model": ErrorResponse, "description": "서버 오류"},
     },
     summary="열차 시간표 조회",
     description=(
-        "TAGO 공공데이터 API를 통해 출발역/도착역/날짜/시간 조건으로 "
-        "열차 시간표를 조회한다. 인증 불필요."
+        "korail2를 통해 열차를 조회한다 (로그인 필요). "
+        "미로그인 시 TAGO 공공데이터로 폴백하지만, "
+        "예약을 위해서는 korail2 조회 결과를 사용해야 한다."
     ),
 )
 async def search_trains(
@@ -202,20 +180,16 @@ async def search_trains(
     time: str = Query(
         ..., description="출발 시간 (HHmmss)", examples=["090000"]
     ),
-    service: TaGoService = Depends(get_tago_service),
+    authorization: str = Header(None),
+    korail_service: KorailService = Depends(get_korail_service),
+    tago_service: TaGoService = Depends(get_tago_service),
 ):
     """
-    TAGO 공공데이터 API를 통해 열차 시간표를 조회한다.
+    열차 시간표를 조회한다.
 
-    - **dep**: 출발역 (한글 역명)
-    - **arr**: 도착역 (한글 역명)
-    - **date**: 출발 날짜 (YYYYMMDD 형식)
-    - **time**: 출발 시간 이후 (HHmmss 형식)
-
-    좌석 유무(general_seats/special_seats)는 공공데이터에서 제공하지 않아
-    항상 false로 반환된다. 좌석 확인은 예약 시 별도 확인이 필요하다.
+    로그인 상태이면 korail2를 통해 조회 (좌석 정보 포함, 예약 가능).
+    미로그인 상태이면 TAGO 공공데이터로 폴백 (좌석 정보 없음).
     """
-    # 파라미터 유효성 검사
     _validate_params(dep, arr, date, time)
 
     logger.info(
@@ -223,17 +197,55 @@ async def search_trains(
         dep, arr, date, time,
     )
 
-    try:
-        trains = await service.search_trains(dep, arr, date, time)
+    now = datetime.now(KST)
 
-        now = datetime.now(KST)
+    # korail2 세션이 유효하면 korail2로 조회 (예약과 동일한 열차번호 체계)
+    if authorization and korail_service.is_session_valid():
+        try:
+            trains = await korail_service.search_trains(dep, arr, date, time)
+
+            response = TrainSearchResponse(
+                trains=trains,
+                searched_at=now.isoformat(),
+            )
+
+            logger.info("[Trains] korail2 조회 성공 - %d건", len(trains))
+            return response
+
+        except NoTrainsError as e:
+            logger.info("[Trains] korail2 열차 없음: %s", e.detail)
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": e.error,
+                    "code": e.code,
+                    "detail": e.detail,
+                },
+            )
+
+        except SessionExpiredError as e:
+            logger.warning("[Trains] korail2 세션 만료, TAGO 폴백: %s", e.detail)
+            # 세션 만료 시 TAGO로 폴백
+
+        except KorailServerError as e:
+            logger.warning("[Trains] korail2 서버 오류, TAGO 폴백: %s", e.detail)
+            # 코레일 서버 오류 시 TAGO로 폴백
+
+        except Exception as e:
+            logger.warning("[Trains] korail2 조회 실패, TAGO 폴백: %s", str(e))
+            # 기타 오류 시 TAGO로 폴백
+
+    # TAGO 공공데이터 폴백
+    logger.info("[Trains] TAGO 폴백 조회")
+    try:
+        trains = await tago_service.search_trains(dep, arr, date, time)
 
         response = TrainSearchResponse(
             trains=trains,
             searched_at=now.isoformat(),
         )
 
-        logger.info("[Trains] 조회 성공 - %d건", len(trains))
+        logger.info("[Trains] TAGO 조회 성공 - %d건", len(trains))
         return response
 
     except StationNotFoundError as e:

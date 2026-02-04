@@ -2,10 +2,13 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_enums.dart';
+import '../../core/services/background_service.dart';
+import '../../core/services/notification_service.dart';
 import '../../data/models/api_error.dart';
 import '../../data/models/search_condition.dart';
 import '../../data/models/train.dart';
 import '../../data/repositories/train_repository.dart';
+import 'auth_provider.dart';
 import 'log_provider.dart';
 import 'reservation_provider.dart';
 
@@ -59,8 +62,8 @@ class MonitorNotifier extends StateNotifier<MonitorState>
   final TrainRepository _repository;
   final LogNotifier _logNotifier;
   final ReservationNotifier _reservationNotifier;
+  final AuthNotifier _authNotifier;
   Timer? _timer;
-  bool _isPaused = false;
 
   /// 탭 전환 콜백 (success/failure 시 결과 탭으로 이동)
   void Function(int tabIndex)? onTabChange;
@@ -69,9 +72,11 @@ class MonitorNotifier extends StateNotifier<MonitorState>
     required TrainRepository repository,
     required LogNotifier logNotifier,
     required ReservationNotifier reservationNotifier,
+    required AuthNotifier authNotifier,
   })  : _repository = repository,
         _logNotifier = logNotifier,
         _reservationNotifier = reservationNotifier,
+        _authNotifier = authNotifier,
         super(const MonitorState()) {
     WidgetsBinding.instance.addObserver(this);
   }
@@ -80,10 +85,10 @@ class MonitorNotifier extends StateNotifier<MonitorState>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.paused:
-        _pauseTimer();
+        _onBackground();
         break;
       case AppLifecycleState.resumed:
-        _resumeTimer();
+        _onForeground();
         break;
       default:
         break;
@@ -128,7 +133,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
 
   /// 조회 수행
   Future<void> _performSearch() async {
-    if (_isPaused || state.condition == null) return;
+    if (state.condition == null) return;
     if (state.status != MonitorStatus.searching) return;
 
     final condition = state.condition!;
@@ -144,6 +149,13 @@ class MonitorNotifier extends StateNotifier<MonitorState>
       final now = DateTime.now();
       final newCount = state.searchCount + 1;
       final targetNos = state.targetTrainNos;
+
+      // 포그라운드 서비스 알림 업데이트 (실패해도 조회에는 영향 없음)
+      try {
+        BackgroundService.instance.updateNotification(
+          '조회 #$newCount - ${condition.depStation} → ${condition.arrStation}',
+        );
+      } catch (_) {}
 
       // 대상 열차 필터링: targetTrainNos가 있으면 해당 열차들만 확인
       final candidates = targetNos.isNotEmpty
@@ -204,8 +216,9 @@ class MonitorNotifier extends StateNotifier<MonitorState>
       final errorDetail = '[${e.code}] ${e.detail}';
 
       if (e.isSessionExpired) {
-        // 세션 만료 시 모니터링 중지
+        // 세션 만료 시 모니터링 중지 → 로그인 화면으로 이동
         _stopTimer();
+        _safeStopBackgroundService();
         state = state.copyWith(
           status: MonitorStatus.failure,
           searchCount: newCount,
@@ -215,8 +228,9 @@ class MonitorNotifier extends StateNotifier<MonitorState>
         _logNotifier.addLog(
           action: 'error',
           result: 'failure',
-          detail: '세션 만료 - 다시 로그인이 필요합니다',
+          detail: '세션 만료 - 로그인 화면으로 이동',
         );
+        _authNotifier.onSessionExpired();
       } else {
         // 기타 API 에러 - 조회는 계속
         state = state.copyWith(
@@ -305,6 +319,19 @@ class MonitorNotifier extends StateNotifier<MonitorState>
             detail: '예약 성공 - ${train.trainNo} ${reservation.reservationId}',
           );
 
+          // 로컬 알림 표시
+          try {
+            NotificationService.instance.showReservationSuccess(
+              trainNo: train.trainNo,
+              reservationId: reservation.reservationId,
+              depStation: condition?.depStation,
+              arrStation: condition?.arrStation,
+            );
+          } catch (_) {}
+
+          // 백그라운드 서비스 중지
+          _safeStopBackgroundService();
+
           _reservationNotifier.setReservation(reservation);
           onTabChange?.call(2); // 내 예약 탭으로 이동
           return; // 성공 시 즉시 중지
@@ -317,6 +344,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
             detail: '예약 실패 - ${train.trainNo} ${reservation.message}',
           );
 
+          _safeStopBackgroundService();
           _reservationNotifier.setReservation(reservation);
           onTabChange?.call(2); // 내 예약 탭으로 이동
           return; // API가 실패 응답을 준 경우 중지
@@ -347,7 +375,12 @@ class MonitorNotifier extends StateNotifier<MonitorState>
             status: MonitorStatus.failure,
             errorMessage: e.detail,
           );
-          onTabChange?.call(2); // 내 예약 탭으로 이동
+          _safeStopBackgroundService();
+          if (e.isSessionExpired) {
+            _authNotifier.onSessionExpired();
+          } else {
+            onTabChange?.call(2); // 내 예약 탭으로 이동
+          }
           return;
         }
       } on NetworkError catch (e) {
@@ -363,6 +396,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
           detail: '${train.trainNo} 예약 오류 - 네트워크: ${e.message}',
         );
 
+        _safeStopBackgroundService();
         onTabChange?.call(2); // 내 예약 탭으로 이동
         return;
       } catch (e) {
@@ -378,6 +412,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
           detail: '${train.trainNo} 예약 오류 - $e',
         );
 
+        _safeStopBackgroundService();
         onTabChange?.call(2); // 내 예약 탭으로 이동
         return;
       }
@@ -401,6 +436,7 @@ class MonitorNotifier extends StateNotifier<MonitorState>
   /// 모니터링 중지
   void stopMonitoring() {
     _stopTimer();
+    _safeStopBackgroundService();
     state = state.copyWith(status: MonitorStatus.idle);
 
     _logNotifier.addLog(
@@ -428,26 +464,48 @@ class MonitorNotifier extends StateNotifier<MonitorState>
     _timer = null;
   }
 
-  void _pauseTimer() {
-    if (_timer != null) {
-      _isPaused = true;
+  /// 앱 백그라운드 전환 시: 모니터링 중이면 foreground service 시작
+  void _onBackground() {
+    if (_timer != null && state.status == MonitorStatus.searching) {
+      _safeStartBackgroundService();
       _logNotifier.addLog(
         action: 'search',
         result: 'info',
-        detail: '앱 백그라운드 전환 - 타이머 일시 정지',
+        detail: '앱 백그라운드 전환 - 모니터링 계속',
       );
     }
   }
 
-  void _resumeTimer() {
-    if (_isPaused && state.status == MonitorStatus.searching) {
-      _isPaused = false;
+  /// 앱 포그라운드 복귀 시: foreground service 중지
+  void _onForeground() {
+    if (state.status == MonitorStatus.searching) {
+      _safeStopBackgroundService();
       _logNotifier.addLog(
         action: 'search',
         result: 'info',
-        detail: '앱 포그라운드 복귀 - 타이머 재개',
+        detail: '앱 포그라운드 복귀',
       );
     }
+  }
+
+  /// 백그라운드 서비스를 안전하게 시작
+  void _safeStartBackgroundService() {
+    try {
+      BackgroundService.instance.startService();
+    } catch (e) {
+      _logNotifier.addLog(
+        action: 'service',
+        result: 'failure',
+        detail: '백그라운드 서비스 시작 실패: $e',
+      );
+    }
+  }
+
+  /// 백그라운드 서비스를 안전하게 중지
+  void _safeStopBackgroundService() {
+    try {
+      BackgroundService.instance.stopService();
+    } catch (_) {}
   }
 
   @override
@@ -465,9 +523,11 @@ final monitorProvider =
     StateNotifierProvider<MonitorNotifier, MonitorState>((ref) {
   final logNotifier = ref.read(logProvider.notifier);
   final reservationNotifier = ref.read(reservationProvider.notifier);
+  final authNotifier = ref.read(authProvider.notifier);
   return MonitorNotifier(
     repository: TrainRepository(),
     logNotifier: logNotifier,
     reservationNotifier: reservationNotifier,
+    authNotifier: authNotifier,
   );
 });

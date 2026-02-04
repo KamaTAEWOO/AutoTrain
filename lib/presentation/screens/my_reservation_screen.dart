@@ -387,9 +387,16 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
             onPressed: () async {
               Navigator.pop(ctx);
               final notifier = ref.read(reservationProvider.notifier);
-              await notifier.cancelReservation(reservationId);
-              // 취소 후 목록 새로고침
-              await notifier.fetchReservations();
+              final success = await notifier.cancelReservation(reservationId);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      success ? '예약이 취소되었습니다' : '예약 취소에 실패했습니다',
+                    ),
+                  ),
+                );
+              }
             },
             child: const Text(
               '취소하기',

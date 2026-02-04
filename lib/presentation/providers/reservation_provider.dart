@@ -91,9 +91,16 @@ class ReservationNotifier extends StateNotifier<ReservationState> {
 
     try {
       await _repository.cancelReservation(reservationId);
+
+      // 목록에서 해당 예약 즉시 제거 (서버 반영 지연 대비)
+      final updatedList = state.reservations
+          .where((r) => r.reservationId != reservationId)
+          .toList();
+
       state = state.copyWith(
         isCancelling: false,
         isCancelled: true,
+        reservations: updatedList,
       );
       return true;
     } catch (e) {

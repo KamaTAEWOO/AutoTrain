@@ -119,6 +119,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = const AuthState(isCheckingAuth: false);
   }
 
+  /// 세션 만료 처리
+  ///
+  /// 로그아웃과 달리 저장된 자격 증명은 유지한다.
+  /// GoRouter가 isLoggedIn=false를 감지하여 로그인 화면으로 이동한다.
+  void onSessionExpired() {
+    ApiClient.instance.clearSessionToken();
+    state = state.copyWith(
+      isLoggedIn: false,
+      errorMessage: '세션이 만료되었습니다. 다시 로그인해주세요.',
+    );
+  }
+
   String _parseError(Object e) {
     if (e is ApiError) {
       if (e.isLoginFailed) {

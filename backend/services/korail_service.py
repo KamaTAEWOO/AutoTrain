@@ -104,6 +104,8 @@ class KorailService:
         self._korail_id: Optional[str] = None
         self._korail_pw: Optional[str] = None
         self._reservations: dict[str, ReservationDetailResponse] = {}
+        # korail2 Reservation 객체 캐시 (취소 시 재조회 없이 사용)
+        self._raw_reservations: dict[str, object] = {}
 
         logger.info("[KorailService] 서비스 초기화 완료")
 
@@ -234,8 +236,8 @@ class KorailService:
             if self._korail is None:
                 raise KorailServerError(detail="코레일 세션이 초기화되지 않았습니다")
 
-            # korail2의 search_train 호출
-            trains = self._korail.search_train(dep, arr, date, time)
+            # korail2의 search_train_allday 호출 (해당 날짜 전체 열차)
+            trains = self._korail.search_train_allday(dep, arr, date, time)
 
             if not trains:
                 raise NoTrainsError()
@@ -243,6 +245,11 @@ class KorailService:
             train_list: list[TrainInfo] = []
             for train in trains:
                 try:
+                    # korail2의 좌석 확인: has_general_seat() / has_special_seat()
+                    # general_seat 코드 "11" = 예약 가능
+                    has_gen = getattr(train, "has_general_seat", lambda: False)()
+                    has_spe = getattr(train, "has_special_seat", lambda: False)()
+
                     train_info = TrainInfo(
                         train_no=getattr(train, "train_no", "N/A"),
                         train_type=getattr(train, "train_type_name", "KTX"),
@@ -254,12 +261,8 @@ class KorailService:
                         arr_time=self._format_time(
                             getattr(train, "arr_time", "000000")
                         ),
-                        general_seats=self._has_seats(
-                            getattr(train, "general_seat_available", "0")
-                        ),
-                        special_seats=self._has_seats(
-                            getattr(train, "special_seat_available", "0")
-                        ),
+                        general_seats=has_gen,
+                        special_seats=has_spe,
                     )
                     train_list.append(train_info)
                 except Exception as parse_err:
@@ -487,10 +490,18 @@ class KorailService:
 
             reservations = self._korail.reservations()
 
+            # korail2 Reservation 객체를 캐싱 (취소 시 재조회 없이 사용)
+            self._raw_reservations.clear()
+
             result: list[ReservationDetailResponse] = []
             for rsv in reservations:
                 try:
                     rsv_id = getattr(rsv, "rsv_id", "")
+
+                    # 원본 korail2 Reservation 객체 캐싱
+                    if rsv_id:
+                        self._raw_reservations[rsv_id] = rsv
+
                     train_info = TrainInfo(
                         train_no=getattr(rsv, "train_no", "N/A"),
                         train_type=getattr(rsv, "train_type_name", "KTX"),
@@ -521,7 +532,10 @@ class KorailService:
                     )
                     continue
 
-            logger.info("[KorailService] 예약 목록 조회 완료 - %d건", len(result))
+            logger.info(
+                "[KorailService] 예약 목록 조회 완료 - %d건 (캐시: %s)",
+                len(result), list(self._raw_reservations.keys()),
+            )
             return result
 
         except (SessionExpiredError, KorailServerError):
@@ -633,25 +647,138 @@ class KorailService:
             if self._korail is None:
                 raise KorailServerError(detail="코레일 세션이 초기화되지 않았습니다")
 
-            # korail2를 통해 예약 목록 조회
-            reservations = self._korail.reservations()
+            # 1차: 캐시된 korail2 Reservation 객체 확인 (재조회 없이 즉시 사용)
+            target_rsv = self._raw_reservations.get(reservation_id)
+            if target_rsv is not None:
+                logger.info(
+                    "[KorailService] 캐시된 예약 객체 사용 - ID: %s",
+                    reservation_id,
+                )
+            else:
+                # 2차: 캐시에 없으면 korail2를 통해 예약 목록 재조회
+                logger.info(
+                    "[KorailService] 캐시 미스, korail2 재조회 - "
+                    "캐시 키: %s", list(self._raw_reservations.keys()),
+                )
+                reservations = self._korail.reservations()
 
-            target_rsv = None
-            for rsv in reservations:
-                if getattr(rsv, "rsv_id", "") == reservation_id:
-                    target_rsv = rsv
-                    break
+                found_ids = []
+                for rsv in reservations:
+                    rid = getattr(rsv, "rsv_id", "N/A")
+                    found_ids.append(rid)
+                    if rid == reservation_id:
+                        target_rsv = rsv
+                logger.info(
+                    "[KorailService] 재조회 결과 - 요청 ID: '%s', "
+                    "조회된 예약 %d건: %s",
+                    reservation_id, len(reservations), found_ids,
+                )
 
             if target_rsv is None:
-                raise ReservationNotFoundError()
+                raise ReservationNotFoundError(
+                    detail=f"예약 {reservation_id}을 찾을 수 없습니다. "
+                           f"예약이 만료되었거나 이미 취소되었을 수 있습니다."
+                )
 
-            # korail2의 cancel 메서드 호출
-            self._korail.cancel(target_rsv)
+            logger.info(
+                "[KorailService] 취소 대상 예약 - rsv_id: %s, journey_no: %s, "
+                "journey_cnt: %s, rsv_chg_no: %s",
+                getattr(target_rsv, "rsv_id", "?"),
+                getattr(target_rsv, "journey_no", "?"),
+                getattr(target_rsv, "journey_cnt", "?"),
+                getattr(target_rsv, "rsv_chg_no", "?"),
+            )
+
+            import json as _json
+            from korail2.korail2 import KORAIL_CANCEL
+
+            cancel_data = {
+                "Device": self._korail._device,
+                "Version": self._korail._version,
+                "Key": self._korail._key,
+                "txtPnrNo": target_rsv.rsv_id,
+                "txtJrnySqno": target_rsv.journey_no,
+                "txtJrnyCnt": target_rsv.journey_cnt,
+                "hidRsvChgNo": target_rsv.rsv_chg_no,
+            }
+
+            logger.info(
+                "[KorailService] 취소 요청 data: %s", cancel_data,
+            )
+
+            # korail2의 cancel()은 GET + body data를 사용하는데
+            # 코레일 서버가 이를 400 Bad Request로 거부함.
+            # korail2의 reservations()는 GET + params(query string)를 사용하므로
+            # 동일한 방식으로 cancel도 params로 전송한다.
+            try:
+                r = self._korail._session.get(
+                    KORAIL_CANCEL, params=cancel_data,
+                )
+                logger.info(
+                    "[KorailService] 취소 응답 status: %s, "
+                    "본문 (앞 500자): %s",
+                    r.status_code, repr(r.text[:500]),
+                )
+
+                if r.status_code == 200:
+                    # JSON 응답 파싱 시도
+                    try:
+                        decoder = _json.JSONDecoder()
+                        j, _ = decoder.raw_decode(r.text.strip())
+                        str_result = j.get("strResult", "")
+                        h_msg_txt = j.get("h_msg_txt", "")
+                        logger.info(
+                            "[KorailService] 취소 결과 - "
+                            "strResult: '%s', msg: '%s'",
+                            str_result, h_msg_txt,
+                        )
+                        if str_result == "FAIL":
+                            raise CancellationFailedError(
+                                detail=h_msg_txt or "코레일 서버에서 취소 거부"
+                            )
+                    except _json.JSONDecodeError:
+                        # JSON 파싱 실패해도 200이면 성공 간주
+                        logger.warning(
+                            "[KorailService] 취소 응답 JSON 파싱 실패, "
+                            "HTTP 200이므로 성공 간주"
+                        )
+                else:
+                    raise CancellationFailedError(
+                        detail=f"코레일 서버 응답: HTTP {r.status_code}"
+                    )
+            except CancellationFailedError:
+                raise
+            except Exception as req_err:
+                logger.error(
+                    "[KorailService] 취소 요청 실패: %s", str(req_err),
+                )
+                raise CancellationFailedError(
+                    detail=f"예약 취소에 실패했습니다: {str(req_err)}"
+                )
 
             now = datetime.now(KST)
 
-            # 메모리 캐시에서도 제거
+            # 캐시에서 제거
             self._reservations.pop(reservation_id, None)
+            self._raw_reservations.pop(reservation_id, None)
+
+            # 취소 확인: 예약 목록 재조회
+            try:
+                remaining = self._korail.reservations()
+                still_exists = any(
+                    getattr(rv, "rsv_id", "") == reservation_id
+                    for rv in remaining
+                )
+                logger.info(
+                    "[KorailService] 취소 후 잔여 예약 %d건, "
+                    "대상 존재: %s",
+                    len(remaining), still_exists,
+                )
+            except Exception as verify_err:
+                logger.warning(
+                    "[KorailService] 취소 확인 조회 실패: %s",
+                    str(verify_err),
+                )
 
             logger.info("[KorailService] 예약 취소 성공 - ID: %s", reservation_id)
 
