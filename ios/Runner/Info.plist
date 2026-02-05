@@ -57,5 +57,10 @@
 		<string>fetch</string>
 		<string>processing</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.kamataewoo.autoKtx.processing</string>
+		<string>com.kamataewoo.autoKtx.refresh</string>
+	</array>
 </dict>
 </plist>
