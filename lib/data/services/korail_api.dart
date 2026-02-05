@@ -159,7 +159,10 @@ class KorailApi {
   // 열차 조회
   // ──────────────────────────────────────────
 
-  /// 열차 목록 조회
+  /// 열차 목록 조회 (하루 전체)
+  ///
+  /// 코레일 API는 한 번에 10개씩만 반환하므로,
+  /// 시간을 증가시키며 반복 호출하여 전체 열차를 가져옵니다.
   Future<List<Train>> searchTrains(
     String dep,
     String arr,
@@ -168,6 +171,63 @@ class KorailApi {
   ) async {
     _requireSession();
 
+    _trainCache.clear();
+    final allTrains = <Train>[];
+    final seenTrainKeys = <String>{}; // 중복 방지
+    var currentTime = time;
+
+    try {
+      // 최대 15번 반복 (korail2 방식)
+      for (var i = 0; i < 15; i++) {
+        final trains = await _searchTrainsSingle(dep, arr, date, currentTime);
+
+        if (trains.isEmpty) {
+          break;
+        }
+
+        // 중복 제거하며 추가
+        for (final train in trains) {
+          final key = '${train.trainNo}_${train.depTime}';
+          if (!seenTrainKeys.contains(key)) {
+            seenTrainKeys.add(key);
+            allTrains.add(train);
+          }
+        }
+
+        // 마지막 열차의 출발 시간 확인
+        final lastTrain = trains.last;
+        final lastDepTime = lastTrain.depTime.replaceAll(':', '');
+
+        // 23:59면 종료
+        if (lastDepTime.startsWith('23') &&
+            int.parse(lastDepTime.substring(2, 4)) >= 59) {
+          break;
+        }
+
+        // 출발 시간 + 1분으로 다음 검색
+        currentTime = _addOneMinute(lastDepTime);
+        _log('다음 검색 시간: $currentTime (반복 ${i + 1}/15)');
+      }
+
+      _log('전체 열차 조회 완료: ${allTrains.length}개');
+      return allTrains;
+    } on ApiError {
+      // 결과 없음 에러는 현재까지 수집한 열차 반환
+      if (allTrains.isNotEmpty) {
+        _log('전체 열차 조회 완료 (중단): ${allTrains.length}개');
+        return allTrains;
+      }
+      rethrow;
+    }
+  }
+
+  /// 단일 열차 조회 (10개)
+  Future<List<Train>> _searchTrainsSingle(
+    String dep,
+    String arr,
+    String date,
+    String time,
+  ) async {
     try {
       final response = await _dio.get(
         KorailConstants.scheduleUrl,
@@ -194,20 +254,21 @@ class KorailApi {
       );
 
       final data = _parseJson(response.data);
-      _log('열차조회 응답: strResult=${data['strResult']}, '
-          'h_msg_cd=${data['h_msg_cd']}, keys=${data.keys.toList()}');
 
       // 결과 확인
       final result = data['strResult'] as String? ?? '';
       if (result != 'SUCC') {
         final msgCd = data['h_msg_cd'] as String? ?? '';
+        // 결과 없음은 빈 리스트 반환
+        if (KorailConstants.errNoResult.contains(msgCd)) {
+          return [];
+        }
         _handleKorailError(msgCd, data);
       }
 
       // 열차 목록 파싱
       final trnInfos = data['trn_infos'] as Map<String, dynamic>? ?? {};
       final trnInfoList = trnInfos['trn_info'];
-      _log('열차조회 파싱: trnInfoList type=${trnInfoList.runtimeType}');
 
       List<Map<String, dynamic>> trainMaps;
       if (trnInfoList is List) {
@@ -219,7 +280,6 @@ class KorailApi {
       }
 
       // KorailTrain으로 파싱 → 캐시 저장 → Train으로 변환
-      _trainCache.clear();
       final trains = <Train>[];
 
       for (final map in trainMaps) {
@@ -232,11 +292,30 @@ class KorailApi {
       }
 
       return trains;
-    } on ApiError {
-      rethrow;
     } on DioException catch (e) {
       throw _handleDioError(e);
     }
+  }
+
+  /// 시간에 1분 추가 (HHmmss 형식)
+  String _addOneMinute(String time) {
+    // time: "HHmmss" 또는 "HHmm" 형식
+    final padded = time.padRight(6, '0');
+    var hour = int.parse(padded.substring(0, 2));
+    var minute = int.parse(padded.substring(2, 4));
+
+    minute += 1;
+    if (minute >= 60) {
+      minute = 0;
+      hour += 1;
+    }
+    if (hour >= 24) {
+      hour = 23;
+      minute = 59;
+    }
+
+    return '${hour.toString().padLeft(2, '0')}'
+        '${minute.toString().padLeft(2, '0')}00';
   }
 
   // ──────────────────────────────────────────
