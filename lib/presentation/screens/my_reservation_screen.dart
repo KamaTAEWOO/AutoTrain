@@ -389,11 +389,17 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
               final notifier = ref.read(reservationProvider.notifier);
               final success = await notifier.cancelReservation(reservationId);
               if (context.mounted) {
+                final cancelError = ref.read(reservationProvider).cancelError;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
-                      success ? '예약이 취소되었습니다' : '예약 취소에 실패했습니다',
+                      success
+                          ? '예약이 취소되었습니다'
+                          : cancelError ?? '예약 취소에 실패했습니다',
                     ),
+                    backgroundColor: success
+                        ? KorailColors.statusSuccess
+                        : KorailColors.statusFailure,
                   ),
                 );
               }
@@ -940,37 +946,9 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
 
   /// 코레일톡 앱 실행 (미설치 시 스토어 안내)
   Future<void> _launchKorailTalk(BuildContext context) async {
-    final korailAppUri = Uri.parse('korailtalktalk://');
-
-    if (await canLaunchUrl(korailAppUri)) {
-      await launchUrl(korailAppUri, mode: LaunchMode.externalApplication);
-    } else {
-      final Uri storeUri;
-      if (Platform.isIOS) {
-        storeUri = Uri.parse(
-          'https://apps.apple.com/kr/app/%EC%BD%94%EB%A0%88%EC%9D%BC%ED%86%A1/id588665498',
-        );
-      } else {
-        storeUri = Uri.parse('market://details?id=com.korail.talk');
-      }
-
-      if (await canLaunchUrl(storeUri)) {
-        await launchUrl(storeUri, mode: LaunchMode.externalApplication);
-      } else {
-        final webStoreUri = Uri.parse(
-          'https://play.google.com/store/apps/details?id=com.korail.talk',
-        );
-        await launchUrl(webStoreUri, mode: LaunchMode.externalApplication);
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('코레일톡 앱이 설치되어 있지 않아 스토어로 이동합니다.'),
-          ),
-        );
-      }
-    }
+    // 코레일 모바일 웹 → 앱이 설치되어 있으면 유니버설 링크로 앱 실행됨
+    final korailWebUri = Uri.parse('https://app.korail.com');
+    await launchUrl(korailWebUri, mode: LaunchMode.externalApplication);
   }
 
   /// 소요 시간 계산

@@ -5,6 +5,7 @@ import '../../core/constants/app_enums.dart';
 import '../../core/constants/stations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../data/models/api_error.dart';
 import '../../data/repositories/train_repository.dart';
 import '../providers/auth_provider.dart';
 import '../providers/search_provider.dart';
@@ -510,8 +511,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (e) {
       notifier.setSearching(false);
       if (mounted) {
+        String message;
+        if (e is ApiError) {
+          message = e.detail;
+        } else if (e is NetworkError) {
+          message = '서버에 연결할 수 없습니다';
+        } else {
+          message = '열차 조회에 실패했습니다';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('조회 실패: $e')),
+          SnackBar(
+            content: Text(message),
+            backgroundColor: KorailColors.statusFailure,
+          ),
         );
       }
     }

@@ -48,6 +48,33 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
     final monitorNotifier = ref.read(monitorProvider.notifier);
     monitorNotifier.onTabChange = widget.onTabChange;
 
+    // 모니터 에러 메시지 SnackBar 표시
+    ref.listen<MonitorState>(monitorProvider, (prev, next) {
+      // 에러 메시지가 새로 설정된 경우
+      if (next.errorMessage != null &&
+          next.errorMessage != prev?.errorMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.errorMessage!),
+            backgroundColor: KorailColors.statusFailure,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      // 상태가 failure로 변경된 경우 (에러 메시지 없이 실패한 경우 포함)
+      if (next.status == MonitorStatus.failure &&
+          prev?.status != MonitorStatus.failure &&
+          next.errorMessage == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('자동 예약 중 오류가 발생했습니다'),
+            backgroundColor: KorailColors.statusFailure,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    });
+
     final showBottomBar = searchState.selectedTrains.isNotEmpty ||
         monitorState.status != MonitorStatus.idle;
 

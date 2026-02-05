@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Auto Ktx</string>
+	<string>기차자동예매</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>auto_ktx</string>
+	<string>기차자동예매</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -48,6 +48,9 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>korailtalktalk</string>
+		<string>korailtalk</string>
+		<string>korail</string>
+		<string>itms-apps</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
