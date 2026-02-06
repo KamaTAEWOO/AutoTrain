@@ -5,12 +5,14 @@ import '../../core/theme/korail_colors.dart';
 class HorizontalDatePicker extends StatefulWidget {
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
+  final Color? brandColor;
   final int dayCount;
 
   const HorizontalDatePicker({
     super.key,
     required this.selectedDate,
     required this.onDateSelected,
+    this.brandColor,
     this.dayCount = 7,
   });
 
@@ -24,6 +26,8 @@ class _HorizontalDatePickerState extends State<HorizontalDatePicker> {
 
   static const double _itemWidth = 56.0;
   static const double _itemSpacing = 8.0;
+
+  Color get _brandColor => widget.brandColor ?? KorailColors.korailBlue;
 
   @override
   void initState() {
@@ -105,7 +109,7 @@ class _HorizontalDatePickerState extends State<HorizontalDatePicker> {
                     style: TextStyle(
                       fontSize: 11,
                       color: isSelected
-                          ? KorailColors.korailBlue
+                          ? _brandColor
                           : isSunday
                               ? Colors.red.shade200
                               : isSaturday
@@ -122,7 +126,7 @@ class _HorizontalDatePickerState extends State<HorizontalDatePicker> {
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
                       color: isSelected
-                          ? KorailColors.korailBlue
+                          ? _brandColor
                           : Colors.white,
                     ),
                   ),
@@ -133,7 +137,7 @@ class _HorizontalDatePickerState extends State<HorizontalDatePicker> {
                       height: 4,
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? KorailColors.korailBlue
+                            ? _brandColor
                             : KorailColors.skyBlue,
                         shape: BoxShape.circle,
                       ),

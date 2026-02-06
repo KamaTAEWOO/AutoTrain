@@ -524,8 +524,9 @@ final monitorProvider =
   final logNotifier = ref.read(logProvider.notifier);
   final reservationNotifier = ref.read(reservationProvider.notifier);
   final authNotifier = ref.read(authProvider.notifier);
+  final railType = ref.watch(authProvider).railType;
   return MonitorNotifier(
-    repository: TrainRepository(),
+    repository: TrainRepository(railType: railType),
     logNotifier: logNotifier,
     reservationNotifier: reservationNotifier,
     authNotifier: authNotifier,

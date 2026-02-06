@@ -4,9 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import '../../data/models/reservation.dart';
+import '../providers/auth_provider.dart';
 import '../providers/reservation_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/log_provider.dart';
@@ -39,6 +42,8 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
   Widget build(BuildContext context) {
     final reservationState = ref.watch(reservationProvider);
     final logs = ref.watch(logProvider);
+    final railType = ref.watch(authProvider).railType;
+    final brandColor = RailColors.primary(railType);
 
     return Scaffold(
       appBar: AppBar(
@@ -53,7 +58,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
           ),
         ],
       ),
-      body: _buildBody(context, ref, reservationState, logs),
+      body: _buildBody(context, ref, reservationState, logs, railType, brandColor),
     );
   }
 
@@ -62,23 +67,25 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     WidgetRef ref,
     ReservationState reservationState,
     List logs,
+    RailType railType,
+    Color brandColor,
   ) {
     // 자동예약 결과가 있으면 기존 상세 화면 표시
     if (reservationState.hasResult && reservationState.reservation != null) {
       if (reservationState.isCancelled) {
-        return _buildCancelledResult(context, ref, reservationState, logs);
+        return _buildCancelledResult(context, ref, reservationState, logs, brandColor);
       }
       final reservation = reservationState.reservation!;
       if (reservation.isSuccess) {
         return _buildSuccessResult(
-            context, ref, reservation, reservationState, logs);
+            context, ref, reservation, reservationState, logs, railType, brandColor);
       } else {
-        return _buildFailureResult(context, ref, reservation, logs);
+        return _buildFailureResult(context, ref, reservation, logs, brandColor);
       }
     }
 
     // 예약 목록 표시
-    return _buildReservationList(context, ref, reservationState);
+    return _buildReservationList(context, ref, reservationState, railType, brandColor);
   }
 
   // ── 예약 목록 ──
@@ -87,6 +94,8 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     BuildContext context,
     WidgetRef ref,
     ReservationState reservationState,
+    RailType railType,
+    Color brandColor,
   ) {
     final theme = Theme.of(context);
 
@@ -148,7 +157,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
             );
           }
           final rsv = reservations[index - 1];
-          return _buildReservationCard(context, ref, theme, rsv);
+          return _buildReservationCard(context, ref, theme, rsv, railType, brandColor);
         },
       ),
     );
@@ -160,13 +169,15 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     WidgetRef ref,
     ThemeData theme,
     Reservation rsv,
+    RailType railType,
+    Color brandColor,
   ) {
     final train = rsv.train;
     return Card(
       margin: const EdgeInsets.only(bottom: AppTheme.spacingSm),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
-        side: const BorderSide(color: KorailColors.korailBlue, width: 1),
+        side: BorderSide(color: brandColor, width: 1),
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppTheme.spacingMd),
@@ -211,7 +222,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                       const SnackBar(content: Text('예약번호가 복사되었습니다')),
                     );
                   },
-                  child: const Icon(Icons.copy, size: 16, color: KorailColors.korailBlue),
+                  child: Icon(Icons.copy, size: 16, color: brandColor),
                 ),
               ],
             ),
@@ -225,7 +236,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: KorailColors.korailBlue,
+                    color: brandColor,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -357,7 +368,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: () => _launchKorailTalk(context),
+                    onPressed: () => _launchPaymentApp(context, railType),
                     child: const Text('결제하기',
                         style: TextStyle(fontSize: 13)),
                   ),
@@ -456,6 +467,8 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     dynamic reservation,
     ReservationState reservationState,
     List logs,
+    RailType railType,
+    Color brandColor,
   ) {
     final theme = Theme.of(context);
     final searchState = ref.read(searchProvider);
@@ -471,7 +484,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
           const SizedBox(height: AppTheme.spacingMd),
 
           // [2] 열차 상세 정보 카드
-          _buildDetailCard(theme, reservation, searchState),
+          _buildDetailCard(theme, reservation, searchState, brandColor),
 
           const SizedBox(height: AppTheme.spacingMd),
 
@@ -481,7 +494,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
           const SizedBox(height: AppTheme.spacingMd),
 
           // [4] 결제 방법 안내
-          _buildPaymentMethods(context, theme),
+          _buildPaymentMethods(context, theme, railType, brandColor),
 
           const SizedBox(height: AppTheme.spacingMd),
 
@@ -614,6 +627,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     ThemeData theme,
     dynamic reservation,
     SearchState searchState,
+    Color brandColor,
   ) {
     final train = reservation.train;
     const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
@@ -634,7 +648,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: KorailColors.korailBlue,
+                    color: brandColor,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -664,7 +678,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                 Icon(
                   Icons.calendar_today,
                   size: 16,
-                  color: KorailColors.korailBlue,
+                  color: brandColor,
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -841,7 +855,8 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
   }
 
   /// [4] 결제 방법 안내 카드
-  Widget _buildPaymentMethods(BuildContext context, ThemeData theme) {
+  Widget _buildPaymentMethods(BuildContext context, ThemeData theme, RailType railType, Color brandColor) {
+    final isKtx = railType == RailType.ktx;
     return Card(
       elevation: 1,
       child: Padding(
@@ -853,7 +868,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
               children: [
                 Icon(
                   Icons.payment,
-                  color: KorailColors.korailBlue,
+                  color: brandColor,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
@@ -869,29 +884,33 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => _launchKorailTalk(context),
+                onPressed: () => _launchPaymentApp(context, railType),
                 icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('코레일톡 앱에서 결제하기'),
+                label: Text('${railType.paymentAppName} 앱 열기'),
               ),
             ),
             const SizedBox(height: AppTheme.spacingMd),
             _buildPaymentMethodTile(
               theme,
+              brandColor: brandColor,
               icon: Icons.phone_android,
-              title: '코레일톡 앱',
+              title: '${railType.paymentAppName} 앱',
               subtitle: '앱 실행 → 승차권 → 예약확인/결제',
             ),
             const SizedBox(height: AppTheme.spacingSm),
             _buildPaymentMethodTile(
               theme,
+              brandColor: brandColor,
               icon: Icons.language,
-              title: '코레일 웹사이트',
-              subtitle:
-                  'www.letskorail.com → 로그인 → 마이페이지 → 예약확인/결제',
+              title: isKtx ? '코레일 웹사이트' : 'SRT 웹사이트',
+              subtitle: isKtx
+                  ? 'www.letskorail.com → 로그인 → 마이페이지 → 예약확인/결제'
+                  : 'etk.srail.kr → 로그인 → 마이페이지 → 예약확인/결제',
             ),
             const SizedBox(height: AppTheme.spacingSm),
             _buildPaymentMethodTile(
               theme,
+              brandColor: brandColor,
               icon: Icons.store,
               title: '역 창구',
               subtitle: '가까운 역 창구에서 예약번호로 결제',
@@ -899,9 +918,10 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
             const SizedBox(height: AppTheme.spacingSm),
             _buildPaymentMethodTile(
               theme,
+              brandColor: brandColor,
               icon: Icons.call,
               title: 'ARS 전화 결제',
-              subtitle: '1544-7788 / 1588-7788',
+              subtitle: isKtx ? '1544-7788 / 1588-7788' : '1800-8001',
             ),
           ],
         ),
@@ -912,6 +932,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
   /// 결제 방법 개별 타일
   Widget _buildPaymentMethodTile(
     ThemeData theme, {
+    required Color brandColor,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -919,7 +940,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: KorailColors.korailBlue, size: 22),
+        Icon(icon, color: brandColor, size: 22),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -944,79 +965,23 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     );
   }
 
-  /// 코레일톡 앱 실행 (미설치 시 스토어 안내)
-  Future<void> _launchKorailTalk(BuildContext context) async {
-    Uri? appUri;
-    
-    if (Platform.isAndroid) {
-      // Android: 코레일톡 앱 패키지명으로 직접 실행
-      appUri = Uri.parse(
-        'intent://korail.com#Intent;scheme=https;package=kr.co.korail.talk;end',
-      );
-    } else if (Platform.isIOS) {
-      // iOS: 유니버설 링크 (앱이 설치되어 있으면 앱으로, 없으면 웹으로)
-      appUri = Uri.parse('https://app.korail.com');
-    }
-    
-    if (appUri != null) {
-      try {
-        final launched = await launchUrl(
-          appUri,
-          mode: LaunchMode.externalApplication,
-        );
-        
-        // Android Intent는 항상 true를 반환하므로, iOS만 체크
-        if (!launched && Platform.isIOS && context.mounted) {
-          _showAppStoreDialog(context);
-        }
-      } catch (e) {
-        if (context.mounted) {
-          _showAppStoreDialog(context);
-        }
-      }
+  /// 결제 앱 마켓으로 이동 (KTX: 코레일톡, SRT: SRT앱)
+  Future<void> _launchPaymentApp(BuildContext context, RailType railType) async {
+    final String url;
+    if (Platform.isIOS) {
+      url = railType.appStoreUrl;
     } else {
-      // 플랫폼이 Android/iOS가 아닌 경우 웹으로
-      await launchUrl(
-        Uri.parse('https://www.letskorail.com'),
-        mode: LaunchMode.externalApplication,
-      );
+      url = railType.playStoreUrl;
     }
-  }
 
-  /// 앱스토어 안내 다이얼로그
-  void _showAppStoreDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('코레일톡 앱이 필요합니다'),
-        content: const Text(
-          '결제를 위해서는 코레일톡 앱이 필요합니다.\n앱스토어에서 앱을 설치하시겠습니까?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              if (Platform.isAndroid) {
-                await launchUrl(
-                  Uri.parse('market://details?id=kr.co.korail.talk'),
-                  mode: LaunchMode.externalApplication,
-                );
-              } else if (Platform.isIOS) {
-                await launchUrl(
-                  Uri.parse('https://apps.apple.com/kr/app/korail-talk/id561440577'),
-                  mode: LaunchMode.externalApplication,
-                );
-              }
-            },
-            child: const Text('앱스토어로 이동'),
-          ),
-        ],
-      ),
-    );
+    final uri = Uri.parse(url);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      // market:// 스킴 실패 시 웹 URL로 fallback (Android)
+      if (!Platform.isIOS) {
+        final webUri = Uri.parse(railType.playStoreWebUrl);
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      }
+    }
   }
 
   /// 소요 시간 계산
@@ -1050,6 +1015,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     WidgetRef ref,
     dynamic reservation,
     List logs,
+    Color brandColor,
   ) {
     final theme = Theme.of(context);
 
@@ -1121,7 +1087,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
                     ),
                     const SizedBox(height: AppTheme.spacingMd),
                     const Divider(),
-                    TrainCard(train: reservation.train, compact: true),
+                    TrainCard(train: reservation.train, compact: true, brandColor: brandColor),
                   ],
                 ),
               ),
@@ -1193,6 +1159,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
     WidgetRef ref,
     ReservationState reservationState,
     List logs,
+    Color brandColor,
   ) {
     final theme = Theme.of(context);
     final reservation = reservationState.reservation;
@@ -1271,7 +1238,7 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
             const SizedBox(height: AppTheme.spacingMd),
             Opacity(
               opacity: 0.5,
-              child: TrainCard(train: reservation.train, compact: true),
+              child: TrainCard(train: reservation.train, compact: true, brandColor: brandColor),
             ),
           ],
 

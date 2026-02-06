@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import 'station_picker_sheet.dart';
 
 /// 코레일톡 스타일 역 선택 위젯 (큰 박스 + 바텀시트)
 class StationSelector extends StatelessWidget {
   final String? departure;
   final String? arrival;
+  final RailType railType;
   final ValueChanged<String> onDepartureChanged;
   final ValueChanged<String> onArrivalChanged;
   final VoidCallback onSwap;
@@ -14,6 +17,7 @@ class StationSelector extends StatelessWidget {
     super.key,
     this.departure,
     this.arrival,
+    this.railType = RailType.ktx,
     required this.onDepartureChanged,
     required this.onArrivalChanged,
     required this.onSwap,
@@ -28,11 +32,13 @@ class StationSelector extends StatelessWidget {
           child: _StationBox(
             label: '출발',
             station: departure,
+            brandColor: RailColors.primary(railType),
             onTap: () async {
               final result = await StationPickerSheet.show(
                 context,
                 title: '출발역 선택',
                 currentStation: departure,
+                railType: railType,
               );
               if (result != null) {
                 onDepartureChanged(result);
@@ -66,11 +72,13 @@ class StationSelector extends StatelessWidget {
           child: _StationBox(
             label: '도착',
             station: arrival,
+            brandColor: RailColors.primary(railType),
             onTap: () async {
               final result = await StationPickerSheet.show(
                 context,
                 title: '도착역 선택',
                 currentStation: arrival,
+                railType: railType,
               );
               if (result != null) {
                 onArrivalChanged(result);
@@ -87,11 +95,13 @@ class StationSelector extends StatelessWidget {
 class _StationBox extends StatelessWidget {
   final String label;
   final String? station;
+  final Color brandColor;
   final VoidCallback onTap;
 
   const _StationBox({
     required this.label,
     this.station,
+    required this.brandColor,
     required this.onTap,
   });
 
@@ -112,7 +122,7 @@ class _StationBox extends StatelessWidget {
               label,
               style: TextStyle(
                 fontSize: 12,
-                color: KorailColors.korailBlue.withAlpha(180),
+                color: brandColor.withAlpha(180),
                 fontWeight: FontWeight.w500,
               ),
             ),

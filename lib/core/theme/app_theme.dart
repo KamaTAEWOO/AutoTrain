@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../constants/rail_type.dart';
 import 'korail_colors.dart';
+import 'rail_colors.dart';
 
 /// 앱 테마 및 컬러 정의
 class AppTheme {
@@ -21,10 +23,11 @@ class AppTheme {
   static const double elevationCard = 1.0;
   static const double elevationActiveCard = 3.0;
 
-  /// Material 3 라이트 테마 (코레일 스타일)
-  static ThemeData get lightTheme {
+  /// Material 3 라이트 테마 (KTX/SRT 동적 색상)
+  static ThemeData lightTheme({RailType railType = RailType.ktx}) {
+    final primary = RailColors.primary(railType);
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: KorailColors.korailBlue,
+      seedColor: primary,
       brightness: Brightness.light,
       surface: KorailColors.background,
     );
@@ -32,8 +35,8 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme.copyWith(
-        primary: KorailColors.korailBlue,
-        secondary: KorailColors.skyBlue,
+        primary: primary,
+        secondary: RailColors.accent(railType),
       ),
       scaffoldBackgroundColor: KorailColors.background,
       appBarTheme: const AppBarTheme(
@@ -57,7 +60,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusButton),
           ),
-          backgroundColor: KorailColors.korailBlue,
+          backgroundColor: primary,
           foregroundColor: Colors.white,
         ),
       ),
@@ -81,7 +84,7 @@ class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        indicatorColor: KorailColors.korailBlue.withAlpha(30),
+        indicatorColor: primary.withAlpha(30),
         elevation: 2,
       ),
     );

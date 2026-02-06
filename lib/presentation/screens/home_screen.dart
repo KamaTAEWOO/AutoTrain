@@ -2,12 +2,15 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_enums.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/constants/stations.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import '../../data/models/api_error.dart';
 import '../../data/repositories/train_repository.dart';
 import '../providers/auth_provider.dart';
+import '../providers/monitor_provider.dart';
 import '../providers/search_provider.dart';
 import '../widgets/horizontal_date_picker.dart';
 import '../widgets/station_selector.dart';
@@ -27,12 +30,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchProvider);
     final authState = ref.watch(authProvider);
+    final railType = authState.railType;
+    final brandColor = RailColors.primary(railType);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          '코레일톡',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          railType.appBarTitle,
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           if (authState.userName.isNotEmpty)
@@ -58,11 +63,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // 블루 그라데이션 영역
+            // 브랜드 그라데이션 영역
             Container(
               width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: KorailColors.blueGradient,
+              decoration: BoxDecoration(
+                gradient: RailColors.gradient(railType),
                 borderRadius: BorderRadius.only(
                   bottomLeft: Radius.circular(24),
                   bottomRight: Radius.circular(24),
@@ -76,6 +81,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     StationSelector(
                       departure: searchState.depStation,
                       arrival: searchState.arrStation,
+                      railType: railType,
                       onDepartureChanged: (station) {
                         ref
                             .read(searchProvider.notifier)
@@ -96,6 +102,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     // 수평 날짜 선택
                     HorizontalDatePicker(
                       selectedDate: searchState.selectedDate,
+                      brandColor: brandColor,
                       onDateSelected: (date) {
                         ref.read(searchProvider.notifier).setDate(date);
                       },
@@ -145,12 +152,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: _canSearch(searchState)
-                            ? () => _searchTrains(searchState)
+                        onPressed: _canSearch(searchState, railType)
+                            ? () => _searchTrains(searchState, railType)
                             : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
-                          foregroundColor: KorailColors.korailBlue,
+                          foregroundColor: brandColor,
                           disabledBackgroundColor:
                               Colors.white.withAlpha(100),
                           shape: RoundedRectangleBorder(
@@ -229,6 +236,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
+              ref.read(searchProvider.notifier).reset();
+              ref.read(monitorProvider.notifier).reset();
               ref.read(authProvider.notifier).logout();
             },
             child: const Text(
@@ -242,6 +251,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<void> _pickTime(BuildContext context, SearchState searchState) async {
+    final brandColor = RailColors.primary(ref.read(authProvider).railType);
     int selectedHour = searchState.selectedHour;
     // 10분 단위 인덱스로 변환 (가장 가까운 값)
     int selectedMinuteIndex =
@@ -283,12 +293,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 );
                             Navigator.pop(ctx);
                           },
-                          child: const Text(
+                          child: Text(
                             '완료',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
-                              color: KorailColors.korailBlue,
+                              color: brandColor,
                             ),
                           ),
                         ),
@@ -312,7 +322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             selectionOverlay:
                                 CupertinoPickerDefaultSelectionOverlay(
                               background:
-                                  KorailColors.korailBlue.withAlpha(20),
+                                  brandColor.withAlpha(20),
                             ),
                             onSelectedItemChanged: (index) {
                               setModalState(() => selectedHour = index);
@@ -338,7 +348,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             selectionOverlay:
                                 CupertinoPickerDefaultSelectionOverlay(
                               background:
-                                  KorailColors.korailBlue.withAlpha(20),
+                                  brandColor.withAlpha(20),
                             ),
                             onSelectedItemChanged: (index) {
                               setModalState(() => selectedMinuteIndex = index);
@@ -410,6 +420,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _showSeatTypePicker(BuildContext context) {
+    final brandColor = RailColors.primary(ref.read(authProvider).railType);
     final current = ref.read(searchProvider).seatType;
     showModalBottomSheet(
       context: context,
@@ -434,7 +445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   current == SeatType.general
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
-                  color: KorailColors.korailBlue,
+                  color: brandColor,
                 ),
                 onTap: () {
                   ref
@@ -449,7 +460,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   current == SeatType.special
                       ? Icons.radio_button_checked
                       : Icons.radio_button_unchecked,
-                  color: KorailColors.korailBlue,
+                  color: brandColor,
                 ),
                 onTap: () {
                   ref
@@ -466,22 +477,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  bool _canSearch(SearchState searchState) {
+  bool _canSearch(SearchState searchState, RailType railType) {
     return searchState.depStation.isNotEmpty &&
         searchState.arrStation.isNotEmpty &&
         searchState.depStation != searchState.arrStation &&
-        Stations.isValid(searchState.depStation) &&
-        Stations.isValid(searchState.arrStation) &&
+        Stations.isValid(searchState.depStation, type: railType) &&
+        Stations.isValid(searchState.arrStation, type: railType) &&
         !searchState.isSearching;
   }
 
-  Future<void> _searchTrains(SearchState searchState) async {
+  Future<void> _searchTrains(SearchState searchState, RailType railType) async {
     final notifier = ref.read(searchProvider.notifier);
     notifier.setSearching(true);
 
     try {
       final condition = searchState.toSearchCondition();
-      final repo = TrainRepository();
+      final repo = TrainRepository(railType: railType);
       final trains = await repo.searchTrains(
         condition.depStation,
         condition.arrStation,

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import '../../data/services/api_client.dart';
 import '../providers/auth_provider.dart';
+import '../providers/search_provider.dart';
+import '../providers/monitor_provider.dart';
 
-/// 코레일 로그인 화면
+/// KTX / SRT 로그인 화면
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -20,17 +24,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _pwFocusNode = FocusNode();
   bool _obscurePassword = true;
   bool _autoLogin = true;
+  RailType _selectedRailType = RailType.ktx;
 
   @override
   void initState() {
     super.initState();
-    _loadAutoLoginSetting();
+    _loadSettings();
   }
 
-  Future<void> _loadAutoLoginSetting() async {
-    final saved = await ApiClient.instance.readAutoLoginSetting();
+  Future<void> _loadSettings() async {
+    final lastType = await ApiClient.instance.readLastRailType();
+    final saved = await ApiClient.instance.readAutoLoginSetting(railType: lastType);
     if (mounted) {
-      setState(() => _autoLogin = saved);
+      setState(() {
+        _selectedRailType = lastType;
+        _autoLogin = saved;
+      });
     }
   }
 
@@ -46,6 +55,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final brandColor = RailColors.primary(_selectedRailType);
 
     // 에러 메시지 스낵바 표시
     ref.listen<AuthState>(authProvider, (prev, next) {
@@ -63,8 +73,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // 상단 블루 그라데이션 영역 (로고 + 타이틀)
-            _buildHeader(),
+            // 상단 그라데이션 영역 (로고 + 타이틀 + 탭)
+            _buildHeader(brandColor),
 
             // 로그인 폼
             Padding(
@@ -73,16 +83,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // 회원번호 입력
-                  _buildLabel('회원번호 (코레일멤버십)'),
+                  _buildLabel(_selectedRailType.memberLabel),
                   const SizedBox(height: 8),
                   TextField(
                     controller: _idController,
                     focusNode: _idFocusNode,
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                     textInputAction: TextInputAction.next,
                     enabled: !authState.isLoading,
                     decoration: InputDecoration(
-                      hintText: '회원번호 10자리 입력',
+                      hintText: _selectedRailType.memberHint,
                       hintStyle: const TextStyle(color: KorailColors.textHint),
                       prefixIcon: const Icon(Icons.person_outline),
                       border: OutlineInputBorder(
@@ -92,8 +102,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       focusedBorder: OutlineInputBorder(
                         borderRadius:
                             BorderRadius.circular(AppTheme.radiusButton),
-                        borderSide: const BorderSide(
-                          color: KorailColors.korailBlue,
+                        borderSide: BorderSide(
+                          color: brandColor,
                           width: 2,
                         ),
                       ),
@@ -136,8 +146,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       focusedBorder: OutlineInputBorder(
                         borderRadius:
                             BorderRadius.circular(AppTheme.radiusButton),
-                        borderSide: const BorderSide(
-                          color: KorailColors.korailBlue,
+                        borderSide: BorderSide(
+                          color: brandColor,
                           width: 2,
                         ),
                       ),
@@ -162,7 +172,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             onChanged: authState.isLoading
                                 ? null
                                 : (v) => setState(() => _autoLogin = v ?? true),
-                            activeColor: KorailColors.korailBlue,
+                            activeColor: brandColor,
                             materialTapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
                           ),
@@ -187,10 +197,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     child: ElevatedButton(
                       onPressed: authState.isLoading ? null : _handleLogin,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: KorailColors.korailBlue,
+                        backgroundColor: brandColor,
                         foregroundColor: Colors.white,
-                        disabledBackgroundColor:
-                            KorailColors.korailBlue.withAlpha(150),
+                        disabledBackgroundColor: brandColor.withAlpha(150),
                         shape: RoundedRectangleBorder(
                           borderRadius:
                               BorderRadius.circular(AppTheme.radiusButton),
@@ -225,10 +234,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       borderRadius:
                           BorderRadius.circular(AppTheme.radiusButton),
                     ),
-                    child: const Column(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        const Row(
                           children: [
                             Icon(
                               Icons.info_outline,
@@ -246,12 +255,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                           ],
                         ),
-                        SizedBox(height: 8),
+                        const SizedBox(height: 8),
                         Text(
-                          '• 코레일멤버십 회원번호와 비밀번호로 로그인합니다.\n'
-                          '• 로그인 정보는 기기에 암호화되어 안전하게 저장됩니다.\n'
-                          '• 세션 만료 시 자동으로 재로그인됩니다.',
-                          style: TextStyle(
+                          _selectedRailType.infoText,
+                          style: const TextStyle(
                             fontSize: 12,
                             height: 1.6,
                             color: KorailColors.textHint,
@@ -269,12 +276,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(Color brandColor) {
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: KorailColors.blueGradient,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        gradient: RailColors.gradient(_selectedRailType),
+        borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(32),
           bottomRight: Radius.circular(32),
         ),
@@ -282,10 +289,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 40, 24, 40),
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
           child: Column(
             children: [
-              // KTX 아이콘
+              // KTX / SRT 탭
+              _buildRailTypeTab(),
+
+              const SizedBox(height: 20),
+
+              // 아이콘
               Container(
                 width: 72,
                 height: 72,
@@ -300,9 +312,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'KTX 자동예약',
-                style: TextStyle(
+              Text(
+                '${_selectedRailType.displayName} 자동예약',
+                style: const TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
@@ -310,13 +322,70 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '코레일 계정으로 로그인하세요',
+                _selectedRailType.loginLabel,
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.white.withAlpha(200),
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRailTypeTab() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(30),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(4),
+      child: Row(
+        children: [
+          _buildTabItem(RailType.ktx),
+          _buildTabItem(RailType.srt),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabItem(RailType type) {
+    final isSelected = _selectedRailType == type;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (_selectedRailType != type) {
+            setState(() {
+              _selectedRailType = type;
+              _idController.clear();
+              _pwController.clear();
+            });
+            // 해당 타입의 자동 로그인 설정 로드
+            ApiClient.instance.readAutoLoginSetting(railType: type).then((v) {
+              if (mounted) setState(() => _autoLogin = v);
+            });
+          }
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Center(
+            child: Text(
+              type.displayName,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: isSelected
+                    ? RailColors.primary(type)
+                    : Colors.white.withAlpha(180),
+              ),
+            ),
           ),
         ),
       ),
@@ -351,6 +420,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // 키보드 닫기
     FocusScope.of(context).unfocus();
 
-    await ref.read(authProvider.notifier).login(id, pw, autoLogin: _autoLogin);
+    final success = await ref.read(authProvider.notifier).login(
+      id,
+      pw,
+      autoLogin: _autoLogin,
+      railType: _selectedRailType,
+    );
+
+    if (success) {
+      // 검색 조건 및 모니터 상태 초기화
+      ref.read(searchProvider.notifier).reset();
+      ref.read(monitorProvider.notifier).reset();
+    }
   }
 }

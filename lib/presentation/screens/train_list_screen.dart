@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/constants/app_enums.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import '../../data/models/train.dart';
+import '../providers/auth_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/monitor_provider.dart';
 import '../providers/log_provider.dart';
@@ -27,7 +30,7 @@ class TrainListScreen extends ConsumerStatefulWidget {
 class _TrainListScreenState extends ConsumerState<TrainListScreen> {
   String _selectedFilter = '전체';
 
-  static const List<String> _filters = [
+  static const List<String> _ktxFilters = [
     '전체',
     'KTX',
     'KTX-산천',
@@ -35,11 +38,24 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
     'KTX-이음',
   ];
 
+  static const List<String> _srtFilters = [
+    '전체',
+    'SRT',
+  ];
+
+  List<String> _filtersForType(RailType type) => switch (type) {
+        RailType.ktx => _ktxFilters,
+        RailType.srt => _srtFilters,
+      };
+
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchProvider);
     final monitorState = ref.watch(monitorProvider);
     final logs = ref.watch(logProvider);
+    final railType = ref.watch(authProvider).railType;
+    final brandColor = RailColors.primary(railType);
+    final filters = _filtersForType(railType);
     final trains = searchState.searchResults;
     final filteredTrains = _applyFilter(trains);
     final theme = Theme.of(context);
@@ -115,10 +131,10 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                       horizontal: AppTheme.spacingMd,
                       vertical: 8,
                     ),
-                    itemCount: _filters.length,
+                    itemCount: filters.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final filter = _filters[index];
+                      final filter = filters[index];
                       final isSelected = filter == _selectedFilter;
                       return ChoiceChip(
                         label: Text(filter),
@@ -126,7 +142,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                         onSelected: (_) {
                           setState(() => _selectedFilter = filter);
                         },
-                        selectedColor: KorailColors.korailBlue,
+                        selectedColor: brandColor,
                         labelStyle: TextStyle(
                           color: isSelected
                               ? Colors.white
@@ -139,7 +155,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                           borderRadius: BorderRadius.circular(20),
                           side: BorderSide(
                             color: isSelected
-                                ? KorailColors.korailBlue
+                                ? brandColor
                                 : Colors.grey.shade300,
                           ),
                         ),
@@ -184,7 +200,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                                       '${searchState.selectedTrains.length}개 열차 선택',
                                       style:
                                           theme.textTheme.bodySmall?.copyWith(
-                                        color: KorailColors.korailBlue,
+                                        color: brandColor,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -202,6 +218,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                               return TrainCard(
                                 train: train,
                                 isSelected: isSelected,
+                                brandColor: brandColor,
                                 onTap: isMonitoring
                                     ? null
                                     : () {
@@ -224,6 +241,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                                   searchState,
                                   monitorState,
                                   theme,
+                                  brandColor,
                                 ),
                               ),
 
@@ -249,7 +267,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
 
                 // 하단 고정 자동예약 바
                 if (showBottomBar)
-                  _buildBottomActionBar(searchState, monitorState, theme),
+                  _buildBottomActionBar(searchState, monitorState, theme, brandColor),
               ],
             ),
     );
@@ -298,6 +316,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
     SearchState searchState,
     MonitorState monitorState,
     ThemeData theme,
+    Color brandColor,
   ) {
     return Card(
       child: Padding(
@@ -321,7 +340,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                       ? (v) =>
                           ref.read(searchProvider.notifier).setAutoReserve(v)
                       : null,
-                  activeThumbColor: KorailColors.korailBlue,
+                  activeThumbColor: brandColor,
                 ),
               ],
             ),
@@ -342,7 +361,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                     max: 30,
                     divisions: 5,
                     label: '${searchState.refreshInterval}초',
-                    activeColor: KorailColors.korailBlue,
+                    activeColor: brandColor,
                     onChanged: monitorState.status == MonitorStatus.idle
                         ? (v) => ref
                             .read(searchProvider.notifier)
@@ -482,6 +501,7 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
     SearchState searchState,
     MonitorState monitorState,
     ThemeData theme,
+    Color brandColor,
   ) {
     final status = monitorState.status;
     final isMonitoring = status == MonitorStatus.searching ||
@@ -533,8 +553,8 @@ class _TrainListScreenState extends ConsumerState<TrainListScreen> {
                   searchState.selectedTrains.isNotEmpty) ...[
                 Row(
                   children: [
-                    const Icon(Icons.train,
-                        size: 16, color: KorailColors.korailBlue),
+                    Icon(Icons.train,
+                        size: 16, color: brandColor),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(

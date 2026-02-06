@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import '../../core/constants/rail_type.dart';
 import '../../core/constants/stations.dart';
 import '../../core/theme/korail_colors.dart';
+import '../../core/theme/rail_colors.dart';
 import '../../core/theme/app_theme.dart';
 
 /// 역 선택 바텀시트
 class StationPickerSheet extends StatefulWidget {
   final String title;
   final String? currentStation;
+  final RailType railType;
 
   const StationPickerSheet({
     super.key,
     required this.title,
     this.currentStation,
+    this.railType = RailType.ktx,
   });
 
   /// 바텀시트를 열어 역을 선택한다.
@@ -19,6 +23,7 @@ class StationPickerSheet extends StatefulWidget {
     BuildContext context, {
     required String title,
     String? currentStation,
+    RailType railType = RailType.ktx,
   }) {
     return showModalBottomSheet<String>(
       context: context,
@@ -30,6 +35,7 @@ class StationPickerSheet extends StatefulWidget {
       builder: (_) => StationPickerSheet(
         title: title,
         currentStation: currentStation,
+        railType: railType,
       ),
     );
   }
@@ -40,7 +46,15 @@ class StationPickerSheet extends StatefulWidget {
 
 class _StationPickerSheetState extends State<StationPickerSheet> {
   final TextEditingController _searchController = TextEditingController();
-  List<String> _filteredStations = Stations.ktxStations;
+  late List<String> _filteredStations;
+  late Color _brandColor;
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredStations = Stations.forType(widget.railType);
+    _brandColor = RailColors.primary(widget.railType);
+  }
 
   @override
   void dispose() {
@@ -50,7 +64,7 @@ class _StationPickerSheetState extends State<StationPickerSheet> {
 
   void _onSearchChanged(String query) {
     setState(() {
-      _filteredStations = Stations.filter(query);
+      _filteredStations = Stations.filter(query, type: widget.railType);
     });
   }
 
@@ -147,13 +161,12 @@ class _StationPickerSheetState extends State<StationPickerSheet> {
                           fontWeight:
                               isSelected ? FontWeight.bold : FontWeight.normal,
                           color: isSelected
-                              ? KorailColors.korailBlue
+                              ? _brandColor
                               : KorailColors.textPrimary,
                         ),
                       ),
                       trailing: isSelected
-                          ? const Icon(Icons.check,
-                              color: KorailColors.korailBlue)
+                          ? Icon(Icons.check, color: _brandColor)
                           : null,
                       onTap: () => Navigator.pop(context, station),
                     );

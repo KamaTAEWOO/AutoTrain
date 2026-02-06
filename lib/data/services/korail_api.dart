@@ -11,11 +11,12 @@ import '../models/reservation.dart';
 import '../models/train.dart';
 import 'korail_constants.dart';
 import 'korail_crypto.dart';
+import 'train_api_service.dart';
 
 /// 코레일 서버와 직접 통신하는 API 클라이언트
 ///
 /// Python 백엔드 없이 코레일 모바일 API를 직접 호출한다.
-class KorailApi {
+class KorailApi implements TrainApiService {
   static KorailApi? _instance;
 
   late final Dio _dio;
@@ -80,9 +81,11 @@ class KorailApi {
   }
 
   /// 세션이 활성 상태인지 확인
+  @override
   bool get hasSession => _sessionKey != null;
 
   /// 로그인한 사용자 이름
+  @override
   String? get userName => _userName;
 
   // ──────────────────────────────────────────
@@ -92,12 +95,13 @@ class KorailApi {
   /// 코레일 로그인
   ///
   /// 반환: (sessionKey, userName)
+  @override
   Future<({String sessionKey, String userName})> login(
     String korailId,
     String korailPw,
   ) async {
     try {
-      _log('로그인 시작: $korailId');
+      _log('로그인 시작: ${korailId.replaceRange(3, korailId.length - 2, '***')}');
 
       // 1. 비밀번호 암호화
       final encrypted = await _crypto.encryptPassword(korailPw);
@@ -105,6 +109,10 @@ class KorailApi {
 
       // 2. 로그인 유형 판별
       final inputFlg = _detectInputType(korailId);
+      // 전화번호인 경우 하이픈 등 특수문자 제거
+      final cleanId = inputFlg == '4'
+          ? korailId.replaceAll(RegExp(r'[^0-9]'), '')
+          : korailId;
       _log('로그인 유형: $inputFlg');
 
       // 3. 로그인 요청
@@ -114,7 +122,7 @@ class KorailApi {
           'Device': KorailConstants.device,
           'Version': KorailConstants.loginVersion,
           'txtInputFlg': inputFlg,
-          'txtMemberNo': korailId,
+          'txtMemberNo': cleanId,
           'txtPwd': encrypted.encryptedPw,
           'idx': encrypted.idx,
         },
@@ -126,20 +134,41 @@ class KorailApi {
 
       // 4. 결과 확인
       final result = data['strResult'] as String? ?? '';
+      final msgCd = data['h_msg_cd'] as String? ?? '';
+      final msgTxt = data['h_msg_txt'] as String? ?? '';
+
       if (result != 'SUCC') {
-        final msgCd = data['h_msg_cd'] as String? ?? '';
-        final msg = data['h_msg_txt'] as String? ?? '로그인에 실패했습니다';
-        _log('로그인 실패: [$msgCd] $msg');
+        _log('로그인 실패: [$msgCd] $msgTxt');
         throw ApiError(
           error: 'LOGIN_FAILED',
           code: 'AUTH_001',
-          detail: '[$msgCd] $msg',
+          detail: msgTxt.isNotEmpty ? '[$msgCd] $msgTxt' : '로그인에 실패했습니다',
+        );
+      }
+
+      // SUCC이지만 서버 장애 메시지인 경우 (S003 등)
+      if (msgCd == 'S003' || msgTxt.contains('서비스에 문제가 발생')) {
+        _log('서버 장애: [$msgCd] $msgTxt');
+        throw ApiError(
+          error: 'SERVER_ERROR',
+          code: 'SYSTEM_001',
+          detail: msgTxt.isNotEmpty ? msgTxt : '서버에 문제가 발생했습니다. 잠시 후 다시 시도해주세요.',
         );
       }
 
       // 5. 세션 저장
       _sessionKey = data['Key'] as String? ?? '';
       _userName = data['strCustNm'] as String? ?? '';
+
+      // Key가 비어있으면 로그인 실패로 처리
+      if (_sessionKey!.isEmpty) {
+        _log('로그인 실패: 세션 키 없음');
+        throw ApiError(
+          error: 'LOGIN_FAILED',
+          code: 'AUTH_001',
+          detail: msgTxt.isNotEmpty ? msgTxt : '로그인에 실패했습니다',
+        );
+      }
 
       _log('로그인 성공: $_userName');
 
@@ -163,6 +192,7 @@ class KorailApi {
   ///
   /// 코레일 API는 한 번에 10개씩만 반환하므로,
   /// 시간을 증가시키며 반복 호출하여 전체 열차를 가져옵니다.
+  @override
   Future<List<Train>> searchTrains(
     String dep,
     String arr,
@@ -257,8 +287,12 @@ class KorailApi {
 
       // 결과 확인
       final result = data['strResult'] as String? ?? '';
+      final msgCd = data['h_msg_cd'] as String? ?? '';
+      final msgTxt = data['h_msg_txt'] as String? ?? '';
+      _log('열차조회 응답: strResult=$result, h_msg_cd=$msgCd, h_msg_txt=$msgTxt');
+
       if (result != 'SUCC') {
-        final msgCd = data['h_msg_cd'] as String? ?? '';
+        _log('열차조회 실패: [$msgCd] $msgTxt');
         // 결과 없음은 빈 리스트 반환
         if (KorailConstants.errNoResult.contains(msgCd)) {
           return [];
@@ -269,6 +303,8 @@ class KorailApi {
       // 열차 목록 파싱
       final trnInfos = data['trn_infos'] as Map<String, dynamic>? ?? {};
       final trnInfoList = trnInfos['trn_info'];
+      _log('열차 파싱: trn_infos keys=${trnInfos.keys.toList()}, '
+          'trn_info type=${trnInfoList.runtimeType}');
 
       List<Map<String, dynamic>> trainMaps;
       if (trnInfoList is List) {
@@ -323,6 +359,7 @@ class KorailApi {
   // ──────────────────────────────────────────
 
   /// 예약 시도
+  @override
   Future<Reservation> reserve(
     String trainNo,
     String seatType, {
@@ -462,6 +499,7 @@ class KorailApi {
   // ──────────────────────────────────────────
 
   /// 내 예약 목록 조회
+  @override
   Future<List<Reservation>> fetchReservations() async {
     _requireSession();
 
@@ -551,6 +589,7 @@ class KorailApi {
   // ──────────────────────────────────────────
 
   /// 예약 취소
+  @override
   Future<Map<String, dynamic>> cancelReservation(String reservationId) async {
     _requireSession();
 
@@ -606,6 +645,7 @@ class KorailApi {
   // ──────────────────────────────────────────
 
   /// 로그아웃 (세션 초기화)
+  @override
   void logout() {
     _sessionKey = null;
     _userName = null;
@@ -651,8 +691,12 @@ class KorailApi {
   /// 로그인 ID 유형 판별
   String _detectInputType(String id) {
     if (id.contains('@')) return '5'; // 이메일
-    if (RegExp(r'^\d{10,}$').hasMatch(id)) return '2'; // 회원번호
-    return '4'; // 전화번호
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    // 01X로 시작하는 10~11자리 → 전화번호
+    if (RegExp(r'^01\d{8,9}$').hasMatch(digits)) return '4';
+    // 그 외 숫자 → 회원번호
+    if (RegExp(r'^\d{10,}$').hasMatch(digits)) return '2';
+    return '4'; // 기본: 전화번호
   }
 
   /// 캐시에서 열차 검색

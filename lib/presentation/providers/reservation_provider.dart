@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/api_error.dart';
 import '../../data/models/reservation.dart';
 import '../../data/repositories/train_repository.dart';
+import 'auth_provider.dart';
 
 /// 예약 결과 상태
 class ReservationState {
@@ -131,5 +132,8 @@ class ReservationNotifier extends StateNotifier<ReservationState> {
 /// 예약 결과 Provider
 final reservationProvider =
     StateNotifierProvider<ReservationNotifier, ReservationState>((ref) {
-  return ReservationNotifier();
+  final railType = ref.watch(authProvider).railType;
+  return ReservationNotifier(
+    repository: TrainRepository(railType: railType),
+  );
 });

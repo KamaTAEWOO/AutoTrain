@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/constants/api_config.dart';
+import '../../core/constants/rail_type.dart';
 
 /// 재로그인에 필요한 자격 증명 저장용 콜백 타입
 typedef ReLoginCallback = Future<String?> Function();
@@ -19,9 +20,19 @@ class ApiClient {
 
   /// 암호화된 자격 증명 저장소
   static const _secureStorage = FlutterSecureStorage();
+
+  // KTX 키
   static const _keyKorailId = 'korail_id';
   static const _keyKorailPw = 'korail_pw';
   static const _keyAutoLogin = 'auto_login';
+
+  // SRT 키
+  static const _keySrtId = 'srt_id';
+  static const _keySrtPw = 'srt_pw';
+  static const _keySrtAutoLogin = 'srt_auto_login';
+
+  // 마지막 사용 철도 타입
+  static const _keyLastRailType = 'last_rail_type';
 
   /// 재로그인 진행 중 플래그 (중복 방지)
   bool _isReLogging = false;
@@ -144,33 +155,42 @@ class ApiClient {
   }
 
   /// 자격 증명을 암호화하여 안전한 저장소에 보관 (자동 재로그인용)
-  ///
-  /// 로그인 성공 시 호출하여 자격 증명을 저장해 두면,
-  /// 이후 401 응답 시 자동으로 재로그인을 시도한다.
-  /// [FlutterSecureStorage]를 사용하여 암호화 보관한다.
-  Future<void> saveCredentials(String korailId, String korailPw) async {
-    await _secureStorage.write(key: _keyKorailId, value: korailId);
-    await _secureStorage.write(key: _keyKorailPw, value: korailPw);
+  Future<void> saveCredentials(
+    String id,
+    String pw, {
+    RailType railType = RailType.ktx,
+  }) async {
+    final idKey = railType == RailType.ktx ? _keyKorailId : _keySrtId;
+    final pwKey = railType == RailType.ktx ? _keyKorailPw : _keySrtPw;
+    await _secureStorage.write(key: idKey, value: id);
+    await _secureStorage.write(key: pwKey, value: pw);
   }
 
   /// 저장된 자격 증명 제거
-  Future<void> clearCredentials() async {
-    await _secureStorage.delete(key: _keyKorailId);
-    await _secureStorage.delete(key: _keyKorailPw);
-    await _secureStorage.delete(key: _keyAutoLogin);
+  Future<void> clearCredentials({RailType railType = RailType.ktx}) async {
+    final idKey = railType == RailType.ktx ? _keyKorailId : _keySrtId;
+    final pwKey = railType == RailType.ktx ? _keyKorailPw : _keySrtPw;
+    final autoKey = railType == RailType.ktx ? _keyAutoLogin : _keySrtAutoLogin;
+    await _secureStorage.delete(key: idKey);
+    await _secureStorage.delete(key: pwKey);
+    await _secureStorage.delete(key: autoKey);
   }
 
   /// 자동 로그인 설정 저장
-  Future<void> saveAutoLoginSetting(bool enabled) async {
-    await _secureStorage.write(
-      key: _keyAutoLogin,
-      value: enabled.toString(),
-    );
+  Future<void> saveAutoLoginSetting(
+    bool enabled, {
+    RailType railType = RailType.ktx,
+  }) async {
+    final key = railType == RailType.ktx ? _keyAutoLogin : _keySrtAutoLogin;
+    await _secureStorage.write(key: key, value: enabled.toString());
   }
 
   /// 자동 로그인 설정 읽기 (기본값: true)
-  Future<bool> readAutoLoginSetting() async {
-    final value = await _secureStorage.read(key: _keyAutoLogin);
+  Future<bool> readAutoLoginSetting({
+    RailType railType = RailType.ktx,
+  }) async {
+    final key = railType == RailType.ktx ? _keyAutoLogin : _keySrtAutoLogin;
+    final value = await _secureStorage.read(key: key);
     if (value == null) return true;
     return value == 'true';
   }
@@ -180,12 +200,28 @@ class ApiClient {
       _dio.options.headers.containsKey('Authorization');
 
   /// 저장된 자격 증명이 있는지 확인하고 반환
-  Future<({String id, String pw})?> readSavedCredentials() async {
-    final savedId = await _secureStorage.read(key: _keyKorailId);
-    final savedPw = await _secureStorage.read(key: _keyKorailPw);
+  Future<({String id, String pw})?> readSavedCredentials({
+    RailType railType = RailType.ktx,
+  }) async {
+    final idKey = railType == RailType.ktx ? _keyKorailId : _keySrtId;
+    final pwKey = railType == RailType.ktx ? _keyKorailPw : _keySrtPw;
+    final savedId = await _secureStorage.read(key: idKey);
+    final savedPw = await _secureStorage.read(key: pwKey);
     if (savedId != null && savedPw != null) {
       return (id: savedId, pw: savedPw);
     }
     return null;
+  }
+
+  /// 마지막 사용 철도 타입 저장
+  Future<void> saveLastRailType(RailType railType) async {
+    await _secureStorage.write(key: _keyLastRailType, value: railType.name);
+  }
+
+  /// 마지막 사용 철도 타입 읽기 (기본값: ktx)
+  Future<RailType> readLastRailType() async {
+    final value = await _secureStorage.read(key: _keyLastRailType);
+    if (value == 'srt') return RailType.srt;
+    return RailType.ktx;
   }
 }

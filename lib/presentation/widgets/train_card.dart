@@ -8,6 +8,7 @@ class TrainCard extends StatelessWidget {
   final Train train;
   final bool compact;
   final bool isSelected;
+  final Color? brandColor;
   final VoidCallback? onTap;
 
   const TrainCard({
@@ -15,8 +16,11 @@ class TrainCard extends StatelessWidget {
     required this.train,
     this.compact = false,
     this.isSelected = false,
+    this.brandColor,
     this.onTap,
   });
+
+  Color get _brandColor => brandColor ?? KorailColors.korailBlue;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +34,7 @@ class TrainCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Row(
       children: [
-        Icon(Icons.train, size: 16, color: KorailColors.korailBlue),
+        Icon(Icons.train, size: 16, color: _brandColor),
         const SizedBox(width: AppTheme.spacingSm),
         Text(
           train.trainNo,
@@ -63,11 +67,11 @@ class TrainCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         side: isSelected
-            ? const BorderSide(color: KorailColors.korailBlue, width: 2)
+            ? BorderSide(color: _brandColor, width: 2)
             : BorderSide.none,
       ),
       color: isSelected
-          ? KorailColors.korailBlue.withAlpha(10)
+          ? _brandColor.withAlpha(10)
           : null,
       child: InkWell(
         onTap: onTap,
@@ -84,7 +88,7 @@ class TrainCard extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
-                      color: KorailColors.korailBlue,
+                      color: _brandColor,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
@@ -106,11 +110,11 @@ class TrainCard extends StatelessWidget {
                   ),
                   const Spacer(),
                   if (isSelected)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
                       child: Icon(
                         Icons.check_circle,
-                        color: KorailColors.korailBlue,
+                        color: _brandColor,
                         size: 22,
                       ),
                     ),
@@ -119,7 +123,7 @@ class TrainCard extends StatelessWidget {
                       train.formattedCharge!,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: KorailColors.korailBlue,
+                        color: _brandColor,
                       ),
                     ),
                 ],

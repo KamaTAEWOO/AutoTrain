@@ -201,6 +201,11 @@ class SearchNotifier extends StateNotifier<SearchState> {
       clearSelectedTrains: true,
     );
   }
+
+  /// 전체 상태 초기화 (로그인/로그아웃 시)
+  void reset() {
+    state = SearchState(selectedDate: DateTime.now());
+  }
 }
 
 /// 검색 조건 Provider
