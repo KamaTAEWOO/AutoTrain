@@ -48,3 +48,18 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+
+# Security & Credentials
+*.key
+*.pem
+*secret*
+*credential*
+*.keystore
+*.jks
+
+# Firebase configuration files (contains API keys)
+google-services.json
+GoogleService-Info.plist
+
+# Serena MCP files (contains project-specific data)
+.serena/

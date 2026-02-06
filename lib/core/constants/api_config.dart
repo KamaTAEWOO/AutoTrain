@@ -1,9 +1,17 @@
 /// API 설정 상수
+///
+/// ⚠️ 주의: 현재 이 클래스는 사용되지 않습니다.
+/// 프로젝트는 Python 백엔드 없이 KorailApi(korail_api.dart)를 통해
+/// 코레일 서버를 직접 호출합니다.
+///
+/// 이 파일은 향후 백엔드 추가 시 또는 Mock 모드 테스트를 위해 유지됩니다.
 class ApiConfig {
   ApiConfig._();
 
-  /// API 기본 URL (Android 실기기에서 접근 가능하도록 LAN IP 사용)
-  static const String baseUrl = 'http://192.168.219.107:8000';
+  /// API 기본 URL
+  /// ⚠️ 실제 사용 시 환경 변수나 AppEnvironment.baseUrl을 사용하세요
+  /// (하드코딩된 IP 주소는 보안상 권장하지 않음)
+  static const String baseUrl = 'http://localhost:8000';
 
   /// API prefix
   static const String apiPrefix = '/api';
