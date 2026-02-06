@@ -946,9 +946,77 @@ class _MyReservationScreenState extends ConsumerState<MyReservationScreen> {
 
   /// 코레일톡 앱 실행 (미설치 시 스토어 안내)
   Future<void> _launchKorailTalk(BuildContext context) async {
-    // 코레일 모바일 웹 → 앱이 설치되어 있으면 유니버설 링크로 앱 실행됨
-    final korailWebUri = Uri.parse('https://app.korail.com');
-    await launchUrl(korailWebUri, mode: LaunchMode.externalApplication);
+    Uri? appUri;
+    
+    if (Platform.isAndroid) {
+      // Android: 코레일톡 앱 패키지명으로 직접 실행
+      appUri = Uri.parse(
+        'intent://korail.com#Intent;scheme=https;package=kr.co.korail.talk;end',
+      );
+    } else if (Platform.isIOS) {
+      // iOS: 유니버설 링크 (앱이 설치되어 있으면 앱으로, 없으면 웹으로)
+      appUri = Uri.parse('https://app.korail.com');
+    }
+    
+    if (appUri != null) {
+      try {
+        final launched = await launchUrl(
+          appUri,
+          mode: LaunchMode.externalApplication,
+        );
+        
+        // Android Intent는 항상 true를 반환하므로, iOS만 체크
+        if (!launched && Platform.isIOS && context.mounted) {
+          _showAppStoreDialog(context);
+        }
+      } catch (e) {
+        if (context.mounted) {
+          _showAppStoreDialog(context);
+        }
+      }
+    } else {
+      // 플랫폼이 Android/iOS가 아닌 경우 웹으로
+      await launchUrl(
+        Uri.parse('https://www.letskorail.com'),
+        mode: LaunchMode.externalApplication,
+      );
+    }
+  }
+
+  /// 앱스토어 안내 다이얼로그
+  void _showAppStoreDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('코레일톡 앱이 필요합니다'),
+        content: const Text(
+          '결제를 위해서는 코레일톡 앱이 필요합니다.\n앱스토어에서 앱을 설치하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              if (Platform.isAndroid) {
+                await launchUrl(
+                  Uri.parse('market://details?id=kr.co.korail.talk'),
+                  mode: LaunchMode.externalApplication,
+                );
+              } else if (Platform.isIOS) {
+                await launchUrl(
+                  Uri.parse('https://apps.apple.com/kr/app/korail-talk/id561440577'),
+                  mode: LaunchMode.externalApplication,
+                );
+              }
+            },
+            child: const Text('앱스토어로 이동'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// 소요 시간 계산
