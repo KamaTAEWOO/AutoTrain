@@ -11,6 +11,7 @@ import '../models/reservation.dart';
 import '../models/train.dart';
 import 'korail_constants.dart';
 import 'korail_crypto.dart';
+import 'korail_dynapath.dart';
 import 'train_api_service.dart';
 
 /// 코레일 서버와 직접 통신하는 API 클라이언트
@@ -22,6 +23,7 @@ class KorailApi implements TrainApiService {
   late final Dio _dio;
   late final CookieJar _cookieJar;
   late final KorailCrypto _crypto;
+  late final KorailDynaPath _dynapath;
 
   /// 코레일 세션 키 (로그인 후 설정)
   String? _sessionKey;
@@ -42,9 +44,15 @@ class KorailApi implements TrainApiService {
         baseUrl: KorailConstants.baseUrl,
         connectTimeout: const Duration(seconds: 10),
         receiveTimeout: const Duration(seconds: 30),
+        // 실제 KorailTalk 앱이 보내는 헤더와 동일하게 맞춰야 MACRO 탐지를 회피.
+        // User-Agent만 설정하고 나머지를 Dio 기본값에 맡기면 서버가 매크로로 판별.
         headers: {
           'User-Agent': KorailConstants.userAgent,
+          'Host': KorailConstants.host,
+          'Connection': 'Keep-Alive',
+          'Accept-Encoding': 'gzip',
         },
+        contentType: 'application/x-www-form-urlencoded; charset=UTF-8',
         // 코레일 서버는 JSON이지만 content-type이 부정확할 수 있으므로 plain으로 수신
         responseType: ResponseType.plain,
       ),
@@ -52,20 +60,77 @@ class KorailApi implements TrainApiService {
 
     _dio.interceptors.add(CookieManager(_cookieJar));
 
-    // 로깅 인터셉터
+    _dynapath = KorailDynaPath();
+
+    // Dynapath 토큰 자동 주입 인터셉터 (보호 엔드포인트만 대상)
+    //
+    // dhfhfk/korail2 원본 동작:
+    // - 로그인: Sid = Dynapath 생성값 (세션 키 없음), x-dynapath-m-token 헤더
+    // - 그 외: Sid = 세션 키 (이미 각 메서드에서 넣음), x-dynapath-m-token 헤더
+    //
+    // 따라서 Sid는 요청에 이미 값이 있으면 덮어쓰지 않는다.
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final auth = _dynapath.buildAuth(options.path);
+          if (auth.headers.isNotEmpty) {
+            options.headers.addAll(auth.headers);
+          }
+          if (auth.sid != null) {
+            if (options.method == 'GET') {
+              final existing = options.queryParameters['Sid'];
+              if (existing == null || (existing is String && existing.isEmpty)) {
+                options.queryParameters = <String, dynamic>{
+                  ...options.queryParameters,
+                  'Sid': auth.sid!,
+                };
+              }
+            } else if (options.method == 'POST') {
+              final data = options.data;
+              if (data is Map && !data.containsKey('Sid')) {
+                // Dio transformer는 Map<String, dynamic>만 인코딩 가능
+                final merged = <String, dynamic>{};
+                data.forEach((k, v) => merged[k.toString()] = v);
+                merged['Sid'] = auth.sid!;
+                options.data = merged;
+              }
+            }
+          }
+          handler.next(options);
+        },
+      ),
+    );
+
+    // 로깅 인터셉터 (진단용: 실제 전송되는 헤더 확인)
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
           _log('→ ${options.method} ${options.uri}');
+          _log('  headers: ${options.headers}');
+          if (options.method == 'POST' && options.data != null) {
+            final data = options.data;
+            if (data is Map) {
+              final redacted = Map.of(data);
+              if (redacted.containsKey('txtPwd')) {
+                redacted['txtPwd'] = '[REDACTED]';
+              }
+              if (redacted.containsKey('x-dynapath-m-token')) {
+                redacted['x-dynapath-m-token'] = '[REDACTED]';
+              }
+              _log('  data: $redacted');
+            }
+          }
           handler.next(options);
         },
         onResponse: (response, handler) {
           _log('← ${response.statusCode} ${response.requestOptions.path}');
+          _log('  resp headers: ${response.headers.map}');
           handler.next(response);
         },
         onError: (error, handler) {
           _log('✗ ${error.type} ${error.response?.statusCode} '
               '${error.requestOptions.uri}: ${error.message}');
+          _log('  resp headers: ${error.response?.headers.map}');
           handler.next(error);
         },
       ),
@@ -115,22 +180,23 @@ class KorailApi implements TrainApiService {
           : korailId;
       _log('로그인 유형: $inputFlg');
 
-      // 3. 로그인 요청
+      // 3. 로그인 요청 (srtgo 기준: Device, Version, Key, txtMemberNo, txtPwd,
+      // txtInputFlg, idx 전체 포함 — 순서도 srtgo와 동일하게 맞춤)
       final response = await _dio.post(
         KorailConstants.loginUrl,
         data: {
           'Device': KorailConstants.device,
           'Version': KorailConstants.loginVersion,
-          'txtInputFlg': inputFlg,
+          'Key': KorailConstants.staticKey,
           'txtMemberNo': cleanId,
           'txtPwd': encrypted.encryptedPw,
+          'txtInputFlg': inputFlg,
           'idx': encrypted.idx,
         },
-        options: Options(contentType: Headers.formUrlEncodedContentType),
       );
 
       final data = _parseJson(response.data);
-      _log('로그인 응답: strResult=${data['strResult']}');
+      _log('로그인 응답: strResult=${data['strResult']}, keys=${data.keys.toList()}');
 
       // 4. 결과 확인
       final result = data['strResult'] as String? ?? '';
@@ -139,6 +205,7 @@ class KorailApi implements TrainApiService {
 
       if (result != 'SUCC') {
         _log('로그인 실패: [$msgCd] $msgTxt');
+        _log('로그인 실패 전체응답: $data');
         throw ApiError(
           error: 'LOGIN_FAILED',
           code: 'AUTH_001',
@@ -156,18 +223,24 @@ class KorailApi implements TrainApiService {
         );
       }
 
-      // 5. 세션 저장
+      // 5. 세션 저장 (dhfhfk/korail2: strMbCrdNo로 실제 로그인 여부 확인)
+      final mbCrdNo = data['strMbCrdNo'] as String? ?? '';
       _sessionKey = data['Key'] as String? ?? '';
       _userName = data['strCustNm'] as String? ?? '';
 
-      // Key가 비어있으면 로그인 실패로 처리
-      if (_sessionKey!.isEmpty) {
-        _log('로그인 실패: 세션 키 없음');
+      if (mbCrdNo.isEmpty && _sessionKey!.isEmpty) {
+        _log('로그인 실패: 세션 키 없음. 응답 전체=$data');
         throw ApiError(
           error: 'LOGIN_FAILED',
           code: 'AUTH_001',
           detail: msgTxt.isNotEmpty ? msgTxt : '로그인에 실패했습니다',
         );
+      }
+
+      // Key가 없지만 membership이 있으면 membership을 세션 식별자로 사용
+      if (_sessionKey!.isEmpty && mbCrdNo.isNotEmpty) {
+        _sessionKey = mbCrdNo;
+        _log('세션 키 없음 → strMbCrdNo($mbCrdNo)를 세션으로 사용');
       }
 
       _log('로그인 성공: $_userName');
@@ -264,7 +337,8 @@ class KorailApi implements TrainApiService {
         queryParameters: {
           'Device': KorailConstants.device,
           'Version': KorailConstants.version,
-          'Key': _sessionKey,
+          'Sid': _sessionKey ?? '',
+          'txtMenuId': KorailConstants.menuId,
           'radJobId': '1', // 직통
           'selGoTrain': KorailConstants.trainTypeKtx,
           'txtTrnGpCd': KorailConstants.trainTypeKtx,
@@ -280,6 +354,11 @@ class KorailApi implements TrainApiService {
           'txtSeatAttCd_2': '000',
           'txtSeatAttCd_3': '000',
           'txtSeatAttCd_4': '015',
+          'ebizCrossCheck': 'N',
+          'srtCheckYn': 'N',
+          'rtYn': 'N',
+          'adjStnScdlOfrFlg': 'N',
+          'mbCrdNo': '',
         },
       );
 
@@ -394,7 +473,8 @@ class KorailApi implements TrainApiService {
         queryParameters: {
           'Device': KorailConstants.device,
           'Version': KorailConstants.version,
-          'Key': _sessionKey,
+          'Key': KorailConstants.staticKey,
+          'Sid': _sessionKey ?? '',
           'txtGdNo': '',
           'txtJobId': '1101', // 좌석 예약
           'txtTotPsgCnt': '1',
@@ -509,7 +589,8 @@ class KorailApi implements TrainApiService {
         queryParameters: {
           'Device': KorailConstants.device,
           'Version': KorailConstants.version,
-          'Key': _sessionKey,
+          'Key': KorailConstants.staticKey,
+          'Sid': _sessionKey ?? '',
         },
       );
 
@@ -607,7 +688,8 @@ class KorailApi implements TrainApiService {
         queryParameters: {
           'Device': KorailConstants.device,
           'Version': KorailConstants.version,
-          'Key': _sessionKey,
+          'Key': KorailConstants.staticKey,
+          'Sid': _sessionKey ?? '',
           'txtPnrNo': reservationId,
           'txtJrnySqno': jrnySqno,
           'txtJrnyCnt': jrnyCnt,
