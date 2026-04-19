@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "BeforeAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "kanvibe-prompt",
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.gemini/hooks/kanvibe-prompt-hook.sh",
+            "timeout": 5000,
+            "description": "KanVibe: 작업 시작 시 status를 progress로 변경"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "kanvibe-stop",
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.gemini/hooks/kanvibe-stop-hook.sh",
+            "timeout": 5000,
+            "description": "KanVibe: 작업 완료 시 status를 review로 변경"
+          }
+        ]
+      }
+    ]
+  }
+}
