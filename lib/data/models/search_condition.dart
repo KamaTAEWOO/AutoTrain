@@ -1,3 +1,5 @@
+import '../../core/constants/app_enums.dart';
+
 /// 열차 검색 조건 모델
 class SearchCondition {
   final String depStation;
@@ -8,6 +10,9 @@ class SearchCondition {
   final bool autoReserve;
   final int refreshInterval;
 
+  /// 사용자가 선택한 좌석 등급 (일반실/특실)
+  final SeatType seatType;
+
   const SearchCondition({
     required this.depStation,
     required this.arrStation,
@@ -16,6 +21,7 @@ class SearchCondition {
     this.trainType = 'KTX',
     this.autoReserve = true,
     this.refreshInterval = 10,
+    this.seatType = SeatType.general,
   });
 
   factory SearchCondition.fromJson(Map<String, dynamic> json) {
@@ -27,6 +33,9 @@ class SearchCondition {
       trainType: json['train_type'] as String? ?? 'KTX',
       autoReserve: json['auto_reserve'] as bool? ?? true,
       refreshInterval: json['refresh_interval'] as int? ?? 10,
+      seatType: (json['seat_type'] as String?) == 'special'
+          ? SeatType.special
+          : SeatType.general,
     );
   }
 
@@ -39,6 +48,7 @@ class SearchCondition {
       'train_type': trainType,
       'auto_reserve': autoReserve,
       'refresh_interval': refreshInterval,
+      'seat_type': seatType.name,
     };
   }
 
@@ -50,6 +60,7 @@ class SearchCondition {
     String? trainType,
     bool? autoReserve,
     int? refreshInterval,
+    SeatType? seatType,
   }) {
     return SearchCondition(
       depStation: depStation ?? this.depStation,
@@ -59,6 +70,7 @@ class SearchCondition {
       trainType: trainType ?? this.trainType,
       autoReserve: autoReserve ?? this.autoReserve,
       refreshInterval: refreshInterval ?? this.refreshInterval,
+      seatType: seatType ?? this.seatType,
     );
   }
 

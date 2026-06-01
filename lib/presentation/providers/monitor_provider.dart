@@ -12,6 +12,21 @@ import 'auth_provider.dart';
 import 'log_provider.dart';
 import 'reservation_provider.dart';
 
+/// 사용자가 선택한 좌석 등급을 예약 API용 문자열('general'/'special')로 변환한다.
+String reserveSeatCode(SeatType seatType) =>
+    seatType == SeatType.special ? 'special' : 'general';
+
+/// 선택한 좌석 등급 기준으로 [train]에 빈자리가 있는지 판정한다.
+///
+/// 일반석·특실 정보가 둘 다 미확인(null, TAGO 조회)이면 일단 시도한다 —
+/// 실제 매진 여부는 예약 API가 판단한다.
+bool hasDesiredSeat(Train train, SeatType seatType) {
+  if (train.generalSeats == null && train.specialSeats == null) return true;
+  return seatType == SeatType.special
+      ? train.specialSeats == true
+      : train.generalSeats == true;
+}
+
 /// 모니터링 상태
 class MonitorState {
   final MonitorStatus status;
@@ -162,15 +177,10 @@ class MonitorNotifier extends StateNotifier<MonitorState>
           ? trains.where((t) => targetNos.contains(t.trainNo)).toList()
           : trains;
 
-      // 좌석이 있는 열차 찾기
-      // TAGO API는 좌석 정보를 제공하지 않아 null로 옴.
-      // null(미확인)인 경우에도 예약 가능성이 있으므로 후보에 포함.
-      // korail2 reserve()가 실제 매진 여부를 판단한다.
+      // 선택한 좌석 등급(일반실/특실) 기준으로 빈자리가 있는 열차만 후보로 한다.
+      // 좌석 정보가 미확인(null)이면 일단 포함하고 예약 API가 매진 여부를 판단한다.
       final availableTrains = candidates
-          .where((t) =>
-              (t.generalSeats == true) ||
-              (t.specialSeats == true) ||
-              (t.generalSeats == null && t.specialSeats == null))
+          .where((t) => hasDesiredSeat(t, condition.seatType))
           .toList();
 
       if (availableTrains.isNotEmpty) {
@@ -292,10 +302,9 @@ class MonitorNotifier extends StateNotifier<MonitorState>
       );
 
       try {
-        // 좌석 유형 결정: 특실이 확실히 있으면 special, 그 외 general 우선
-        final seatType = (train.specialSeats == true && train.generalSeats != true)
-            ? 'special'
-            : 'general';
+        // 좌석 유형: 사용자가 선택한 등급을 그대로 사용한다.
+        final seatType =
+            reserveSeatCode(condition?.seatType ?? SeatType.general);
 
         // 열차의 실제 출발시간을 HHmmss 포맷으로 변환하여 전달
         // TAGO depTime은 "HH:MM" 형식, 백엔드는 "HHmmss" 기대

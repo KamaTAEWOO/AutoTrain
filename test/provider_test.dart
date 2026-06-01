@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:auto_ktx/core/constants/app_enums.dart';
 import 'package:auto_ktx/presentation/providers/search_provider.dart';
 
 void main() {
@@ -194,6 +195,25 @@ void main() {
 
         expect(condition.autoReserve, false);
         expect(condition.refreshInterval, 25);
+      });
+
+      test('기본 좌석 유형은 일반실이다', () {
+        notifier.setDepStation('서울');
+        notifier.setArrStation('부산');
+
+        expect(notifier.debugState.toSearchCondition().seatType,
+            SeatType.general);
+      });
+
+      test('선택한 특실이 SearchCondition까지 전달된다 (회귀)', () {
+        // 과거 버그: toSearchCondition()이 seatType을 버려서
+        // 특실을 골라도 모니터가 일반석으로 예약했다.
+        notifier.setDepStation('서울');
+        notifier.setArrStation('부산');
+        notifier.setSeatType(SeatType.special);
+
+        expect(notifier.debugState.toSearchCondition().seatType,
+            SeatType.special);
       });
     });
 

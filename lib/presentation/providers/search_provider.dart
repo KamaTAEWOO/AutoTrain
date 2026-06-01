@@ -91,6 +91,7 @@ class SearchState {
       time: timeStr,
       autoReserve: autoReserve,
       refreshInterval: refreshInterval,
+      seatType: seatType,
     );
   }
 
